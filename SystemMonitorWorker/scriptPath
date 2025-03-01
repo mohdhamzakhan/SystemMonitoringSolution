@@ -1,0 +1,7 @@
+Set objWMIService = GetObject("winmgmts:\\.\root\cimv2")
+Set colProcesses = objWMIService.ExecQuery("Select * from Win32_Process Where Name='SystemMonitorWorker.exe'")
+
+If colProcesses.Count = 0 Then
+    Set objShell = CreateObject("WScript.Shell")
+    objShell.Run "\\meaisdfs\PUBLIC_SANAND\04IT_Sanand\02_Open_to_all\SystemMonitorWorker\SystemMonitorWorker.exe", 0, False
+End If

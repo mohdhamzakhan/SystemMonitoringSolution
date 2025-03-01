@@ -1,0 +1,85 @@
+Exception: PowerShell Error: At line:6 char:16
++ $scriptBlock = @
++                ~
+Unrecognized token in source text.
+At line:16 char:1
++ @
++ ~
+Unrecognized token in source text.
+At line:19 char:24
++ $scriptPath = $env:Temp\CheckAndRun.ps1
++                        ~~~~~~~~~~~~~~~~
+Unexpected token '\CheckAndRun.ps1' in expression or statement.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : UnrecognizedToken
+ 
+
+   at SystemMonitorWorker.Worker.ExecutePowerShellScript(String scriptText) in D:\Secret\SystemMonitoringSolution\SystemMonitorWorker\Worker.cs:line 513
+Exception: PowerShell Error: $processName : The term '$processName' is not recognized as the name of a cmdlet, function, script file, or operable 
+program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+At line:7 char:1
++ `$processName = SystemMonitorWorker
++ ~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: ($processName:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+$exePath : The term '$exePath' is not recognized as the name of a cmdlet, function, script file, or operable program. 
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+At line:8 char:1
++ `$exePath = \\meaisdfs\PUBLIC_SANAND\04IT_Sanand\02_Open_to_all\Syste ...
++ ~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: ($exePath:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+Start-Process : This command cannot be run due to the error: The system cannot find the file specified.
+At line:12 char:2
++  Start-Process -FilePath `$exePath
++  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (:) [Start-Process], InvalidOperationException
+    + FullyQualifiedErrorId : InvalidOperationException,Microsoft.PowerShell.Commands.StartProcessCommand
+ 
+Out-File : Cannot find drive. A drive with the name ';$env' does not exist.
+At line:20 char:16
++ $scriptBlock | Out-File -Encoding utf8 -FilePath $scriptPath
++                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (;$env:String) [Out-File], DriveNotFoundException
+    + FullyQualifiedErrorId : DriveNotFound,Microsoft.PowerShell.Commands.OutFileCommand
+ 
+
+   at SystemMonitorWorker.Worker.ExecutePowerShellScript(String scriptText) in D:\Secret\SystemMonitoringSolution\SystemMonitorWorker\Worker.cs:line 514
+Exception: PowerShell Error: New-ScheduledTaskTrigger : A parameter cannot be found that matches parameter name 'Delay'.
+At line:25 char:49
++ $trigger2 = New-ScheduledTaskTrigger -AtStartup -Delay (New-TimeSpan  ...
++                                                 ~~~~~~
+    + CategoryInfo          : InvalidArgument: (:) [New-ScheduledTaskTrigger], ParameterBindingException
+    + FullyQualifiedErrorId : NamedParameterNotFound,New-ScheduledTaskTrigger
+ 
+Register-ScheduledTask : Cannot validate argument on parameter 'Trigger'. The argument is null, empty, or an element 
+of the argument collection contains a null value. Supply a collection that does not contain any null values and then 
+try the command again.
+At line:31 char:69
++ ... skName $taskName -Action $action -Trigger $trigger1,$trigger2 -Settin ...
++                                               ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidData: (:) [Register-ScheduledTask], ParameterBindingValidationException
+    + FullyQualifiedErrorId : ParameterArgumentValidationError,Register-ScheduledTask
+ 
+
+   at SystemMonitorWorker.Worker.ExecutePowerShellScript(String scriptText) in D:\Secret\SystemMonitoringSolution\SystemMonitorWorker\Worker.cs:line 525
+Exception: PowerShell Error: New-ScheduledTaskTrigger : A positional parameter cannot be found that accepts argument '00:10:00'.
+At line:25 char:13
++ $trigger2 = New-ScheduledTaskTrigger -AtStartup (New-TimeSpan -Minute ...
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidArgument: (:) [New-ScheduledTaskTrigger], ParameterBindingException
+    + FullyQualifiedErrorId : PositionalParameterNotFound,New-ScheduledTaskTrigger
+ 
+Register-ScheduledTask : Cannot validate argument on parameter 'Trigger'. The argument is null, empty, or an element 
+of the argument collection contains a null value. Supply a collection that does not contain any null values and then 
+try the command again.
+At line:31 char:69
++ ... skName $taskName -Action $action -Trigger $trigger1,$trigger2 -Settin ...
++                                               ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidData: (:) [Register-ScheduledTask], ParameterBindingValidationException
+    + FullyQualifiedErrorId : ParameterArgumentValidationError,Register-ScheduledTask
+ 
+
+   at SystemMonitorWorker.Worker.ExecutePowerShellScript(String scriptText) in D:\Secret\SystemMonitoringSolution\SystemMonitorWorker\Worker.cs:line 525

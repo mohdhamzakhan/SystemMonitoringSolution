@@ -1,0 +1,53 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.12.35506.116
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SystemMonitorWorker", "SystemMonitorWorker\SystemMonitorWorker.csproj", "{CE82F4FD-80A5-443A-9E56-5CC78EB5027D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SystemMonitorAPI", "SystemMonitorAPI\SystemMonitorAPI.csproj", "{2C53FC49-01FA-4CCB-9F74-72A0B025F85C}"
+EndProject
+Project("{E24C65DC-7377-472B-9ABA-BC803B73C61A}") = "my-react-frontend", "my-react-frontend\", "{ECFF68DC-CB7C-46BE-B70C-E128D9D9A22F}"
+	ProjectSection(WebsiteProperties) = preProject
+		TargetFrameworkMoniker = ".NETFramework,Version%3Dv4.0"
+		Debug.AspNetCompiler.VirtualPath = "/localhost_60776"
+		Debug.AspNetCompiler.PhysicalPath = "my-react-frontend\"
+		Debug.AspNetCompiler.TargetPath = "PrecompiledWeb\localhost_60776\"
+		Debug.AspNetCompiler.Updateable = "true"
+		Debug.AspNetCompiler.ForceOverwrite = "true"
+		Debug.AspNetCompiler.FixedNames = "false"
+		Debug.AspNetCompiler.Debug = "True"
+		Release.AspNetCompiler.VirtualPath = "/localhost_60776"
+		Release.AspNetCompiler.PhysicalPath = "my-react-frontend\"
+		Release.AspNetCompiler.TargetPath = "PrecompiledWeb\localhost_60776\"
+		Release.AspNetCompiler.Updateable = "true"
+		Release.AspNetCompiler.ForceOverwrite = "true"
+		Release.AspNetCompiler.FixedNames = "false"
+		Release.AspNetCompiler.Debug = "False"
+		VWDPort = "60776"
+		SlnRelativePath = "my-react-frontend\"
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CE82F4FD-80A5-443A-9E56-5CC78EB5027D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CE82F4FD-80A5-443A-9E56-5CC78EB5027D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CE82F4FD-80A5-443A-9E56-5CC78EB5027D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CE82F4FD-80A5-443A-9E56-5CC78EB5027D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2C53FC49-01FA-4CCB-9F74-72A0B025F85C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2C53FC49-01FA-4CCB-9F74-72A0B025F85C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2C53FC49-01FA-4CCB-9F74-72A0B025F85C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2C53FC49-01FA-4CCB-9F74-72A0B025F85C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ECFF68DC-CB7C-46BE-B70C-E128D9D9A22F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ECFF68DC-CB7C-46BE-B70C-E128D9D9A22F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ECFF68DC-CB7C-46BE-B70C-E128D9D9A22F}.Release|Any CPU.ActiveCfg = Debug|Any CPU
+		{ECFF68DC-CB7C-46BE-B70C-E128D9D9A22F}.Release|Any CPU.Build.0 = Debug|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
