@@ -579,15 +579,25 @@ namespace SystemMonitorAPI.Controllers
         public async Task<IActionResult> GetDevices()
         {
             var devices = await _context.Devices
-            .Select(d => new
-            {
-                d.Hostname,
-                d.Username,
-                d.Status,
-                d.LastUpdated,
-                d.Department
-            })
-            .ToListAsync();
+         .GroupJoin(
+             _context.BitLockerKey,
+             device => device.Hostname,
+             key => key.Hostname,
+             (device, keys) => new
+             {
+                 device,
+                 KeyCount = keys.Count()
+             })
+         .Select(d => new
+         {
+             d.device.Hostname,
+             d.device.Username,
+             d.device.Status,
+             d.device.LastUpdated,
+             d.device.Department,
+             KeyCount = d.KeyCount
+         })
+         .ToListAsync();
 
             // Optionally notify clients when data is fetched
             await _hubContext.Clients.All.SendAsync("DevicesFetched", devices);

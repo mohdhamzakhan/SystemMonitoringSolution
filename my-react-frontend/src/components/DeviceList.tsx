@@ -6,6 +6,7 @@ import LoadingPage from "./Loading.jsx";
 import Navbar from "./Navbar.jsx";
 import { APP_CONSTANTS } from "../store.js";
 import useAuth from "./useAuth.ts";
+import { Key } from "lucide-react";
 
 // Define the type for a device
 interface Device {
@@ -14,6 +15,7 @@ interface Device {
   department: string;
   status: string;
   lastUpdated: string;
+  keyCount: number;
 }
 
 const DeviceList: React.FC = () => {
@@ -109,11 +111,21 @@ const DeviceList: React.FC = () => {
 
   const sortedDevices = [...searchedDevices].sort((a, b) => {
     if (!sortColumn) return 0;
-    const valueA = a[sortColumn].toString().toLowerCase();
-    const valueB = b[sortColumn].toString().toLowerCase();
 
-    if (valueA < valueB) return sortDirection === "asc" ? -1 : 1;
-    if (valueA > valueB) return sortDirection === "asc" ? 1 : -1;
+    const valueA = a[sortColumn];
+    const valueB = b[sortColumn];
+
+    // If sorting the "keyCount" column, use numeric comparison
+    if (sortColumn === "keyCount") {
+      return sortDirection === "asc" ? valueA - valueB : valueB - valueA;
+    }
+
+    // Default string comparison for other columns
+    const strA = valueA.toString().toLowerCase();
+    const strB = valueB.toString().toLowerCase();
+
+    if (strA < strB) return sortDirection === "asc" ? -1 : 1;
+    if (strA > strB) return sortDirection === "asc" ? 1 : -1;
     return 0;
   });
 
@@ -217,7 +229,21 @@ const DeviceList: React.FC = () => {
                     >
                       {device.hostname}
                     </td>
-                    <td className="p-4 text-gray-800">{device.username}</td>
+                    <td className="p-4 text-gray-800 flex items-center space-x-2">
+                      {/* Key Icon & Count */}
+                      {device.keyCount > 0 && (
+                        <div className="flex items-center space-x-1 text-blue-600">
+                          <Key size={16} /> {/* Key icon */}
+                          <span className="text-sm font-medium">
+                            {device.keyCount}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Username */}
+                      <span className="text-gray-800">{device.username}</span>
+                    </td>
+
                     <td className="p-4 text-gray-800">{device.department}</td>
                     <td className="p-4 text-gray-800">{device.status}</td>
                     <td className="p-4 text-gray-600">
