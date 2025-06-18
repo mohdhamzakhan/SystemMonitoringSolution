@@ -9,7 +9,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SystemMonitorAPI", "SystemM
 EndProject
 Project("{E24C65DC-7377-472B-9ABA-BC803B73C61A}") = "my-react-frontend", "my-react-frontend\", "{ECFF68DC-CB7C-46BE-B70C-E128D9D9A22F}"
 	ProjectSection(WebsiteProperties) = preProject
-		TargetFrameworkMoniker = ".NETFramework,Version%3Dv4.0"
+		TargetFrameworkMoniker = ".NETFramework,Version%3Dv4.8"
 		Debug.AspNetCompiler.VirtualPath = "/localhost_60776"
 		Debug.AspNetCompiler.PhysicalPath = "my-react-frontend\"
 		Debug.AspNetCompiler.TargetPath = "PrecompiledWeb\localhost_60776\"
