@@ -107,33 +107,36 @@ const SoftwareDashboard = () => {
   };
 
   // Group and filter software data
-  const groupedSoftwareData: Record<string, GroupedSoftware> =
-    softwareData.reduce((acc: Record<string, GroupedSoftware>, software) => {
-      if (
-        searchTerm &&
-        !software.softwareName
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) &&
-        !software.hostname.toLowerCase().includes(searchTerm.toLowerCase())
-      ) {
-        return acc;
-      }
-
-      const { softwareName, version, hostname, username, publisher } = software;
-
-      if (!acc[softwareName]) {
-        acc[softwareName] = {
-          softwareName,
-          version,
-          publisher,
-          installations: [],
-        };
-      }
-
-      acc[softwareName].installations.push({ hostname, username });
-
+  // Group and filter software data
+const groupedSoftwareData: Record<string, GroupedSoftware> =
+  softwareData.reduce((acc: Record<string, GroupedSoftware>, software) => {
+    if (
+      searchTerm &&
+      !software.softwareName.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      !software.hostname.toLowerCase().includes(searchTerm.toLowerCase())
+    ) {
       return acc;
-    }, {});
+    }
+
+    const { softwareName, version, hostname, username, publisher } = software;
+
+    // ✅ Use combined key for accurate grouping
+    const key = `${softwareName}__${version}__${publisher}`;
+
+    if (!acc[key]) {
+      acc[key] = {
+        softwareName,
+        version,
+        publisher,
+        installations: [],
+      };
+    }
+
+    acc[key].installations.push({ hostname, username });
+
+    return acc;
+  }, {});
+
 
   if (isLoading) {
     return (
@@ -213,10 +216,10 @@ const SoftwareDashboard = () => {
                       </p>
                     </div>
                     <button
-                      onClick={() => toggleCollapse(software.softwareName)}
+                              onClick={() => toggleCollapse(software.softwareName)}
                       className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                    >
-                      {isCollapsed[software.softwareName] ? (
+                          >
+                              {isCollapsed[software.softwareName] ? (
                         <ChevronDown className="h-4 w-4" />
                       ) : (
                         <ChevronUp className="h-4 w-4" />

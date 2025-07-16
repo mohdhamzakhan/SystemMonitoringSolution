@@ -208,7 +208,7 @@ namespace SystemMonitorAPI.Controllers
         [HttpGet("update-password")]
         public async Task<IActionResult> UpdatePassword()
         {
-            var encryptedPassword = _credentialService.Encrypt("KYAhai@2290123$%", true);
+            var encryptedPassword = _credentialService.Encrypt("KYA%^", true);
 
             var credential = new Credential
             {
