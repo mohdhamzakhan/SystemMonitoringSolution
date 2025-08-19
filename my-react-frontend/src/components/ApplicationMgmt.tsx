@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { RefreshCw, Download, Filter } from "lucide-react";
+import { Download, Filter } from "lucide-react";
 import Navbar from "./Navbar";
 import { useNavigate } from "react-router-dom";
 import useAuth from "./useAuth";
 import { APP_CONSTANTS } from "../store";
 
 const Dashboard = () => {
-  useAuth(); // Ensures the user is authenticated before loading the page
+  useAuth();
   const navigate = useNavigate();
+
   type System = {
     hostname: string;
     username: string;
@@ -21,19 +22,23 @@ const Dashboard = () => {
     updateID: string;
     fileName: string;
   };
+
   const [assignedSystems, setAssignedSystems] = useState<System[]>([]);
   const [filteredSystems, setFilteredSystems] = useState<System[]>([]);
   const [updates, setUpdates] = useState<Update[]>([]);
   const [selectedUpdate, setSelectedUpdate] = useState("");
+  const [selectedUpdateId, setSelectedUpdateId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<{ [key: string]: boolean }>({
-    pending: false,
-    completed: false,
-    failed: false,
+    pending: true,
+    completed: true,
+    failed: true,
   });
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
 
-  // Fetch updates on page load
+  // Fetch updates
   useEffect(() => {
     axios
       .get(APP_CONSTANTS.API_BASE_URL + "/api/Installation/active-updates")
@@ -48,7 +53,6 @@ const Dashboard = () => {
       });
   }, []);
 
-  // Fetch assigned systems when an update is selected
   const fetchAssignedSystems = (updateId: string | null | undefined) => {
     setLoading(true);
     setError(null);
@@ -58,13 +62,13 @@ const Dashboard = () => {
         `${APP_CONSTANTS.API_BASE_URL}/api/Installation/assigned-hostnames?updateID=${updateId}`
       )
       .then((response) => {
-        const systems = Array.isArray(response.data.values.$values)
+        const systems = Array.isArray(response.data.values?.$values)
           ? response.data.values.$values
           : [];
         setAssignedSystems(systems);
-        setFilteredSystems(systems);
       })
-      .catch(() => {
+      .catch((e) => {
+        console.error(e);
         setError("Failed to load assigned systems.");
         setAssignedSystems([]);
         setFilteredSystems([]);
@@ -72,30 +76,63 @@ const Dashboard = () => {
       .finally(() => setLoading(false));
   };
 
-  // Handle dropdown change
+  // Re-filter whenever dependencies change
+  useEffect(() => {
+    let filtered = assignedSystems;
+
+    filtered = filtered.filter(
+      (system) => statusFilter[system.status.toLowerCase()]
+    );
+
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (system) =>
+          system.hostname.toLowerCase().includes(q) ||
+          system.username.toLowerCase().includes(q)
+      );
+    }
+
+    // Apply sorting
+    if (sortConfig) {
+      filtered = [...filtered].sort((a, b) => {
+        let aVal = (a as any)[sortConfig.key];
+        let bVal = (b as any)[sortConfig.key];
+
+        if (sortConfig.key === "lastAttemptDate") {
+          aVal = new Date(aVal).getTime();
+          bVal = new Date(bVal).getTime();
+        }
+
+        if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    setFilteredSystems(filtered);
+  }, [assignedSystems, statusFilter, searchTerm, sortConfig]);
+
   const handleUpdateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const updateId = e.target.value;
     setSelectedUpdate(updateId);
-    if (updateId) fetchAssignedSystems(updateId);
-    else {
+
+    if (updateId) {
+      const asNumber = Number(updateId);
+      setSelectedUpdateId(Number.isFinite(asNumber) ? asNumber : null);
+      fetchAssignedSystems(updateId);
+    } else {
+      setSelectedUpdateId(null);
       setAssignedSystems([]);
       setFilteredSystems([]);
     }
   };
 
-  // Handle status filter changes
   const handleStatusFilterChange = (status: keyof typeof statusFilter) => {
     const updatedFilter = { ...statusFilter, [status]: !statusFilter[status] };
     setStatusFilter(updatedFilter);
-
-    // Filter systems based on selected statuses
-    const filtered = assignedSystems.filter(
-      (system) => updatedFilter[system.status.toLowerCase()]
-    );
-    setFilteredSystems(filtered);
   };
 
-  // Helper function to get status style
   const getStatusStyle = (status: string) => {
     switch (status.toLowerCase()) {
       case "pending":
@@ -109,10 +146,10 @@ const Dashboard = () => {
     }
   };
 
-  // Export data to CSV
   const exportToCSV = () => {
     const headers = [
       "Hostname",
+      "Username",
       "Status",
       "Status Message",
       "Last Attempt Date",
@@ -140,21 +177,69 @@ const Dashboard = () => {
     document.body.removeChild(link);
   };
 
+  const handleReassign = (hostname: string, updateId: number) => {
+    axios
+      .post(`${APP_CONSTANTS.API_BASE_URL}/api/Installation/reassign`, {
+        Hostname: hostname,
+        UpdateId: updateId,
+      })
+      .then(() => {
+        alert("Task reassigned successfully!");
+        fetchAssignedSystems(String(updateId));
+      })
+      .catch((err) => {
+        console.error(err?.response || err);
+        const msg =
+          err?.response?.data?.message ||
+          err?.response?.data ||
+          "Failed to reassign task.";
+        alert(msg);
+      });
+  };
+
+  const requestSort = (key: string) => {
+    let direction: "asc" | "desc" = "asc";
+    if (sortConfig?.key === key && sortConfig.direction === "asc") {
+      direction = "desc";
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const counts = {
+    pending: assignedSystems.filter(
+      (s) => s.status.toLowerCase() === "pending"
+    ).length,
+    completed: assignedSystems.filter(
+      (s) => s.status.toLowerCase() === "completed"
+    ).length,
+    failed: assignedSystems.filter(
+      (s) => s.status.toLowerCase() === "failed"
+    ).length,
+  };
+
+  const renderSortArrow = (key: string) => {
+    if (sortConfig?.key !== key) return null;
+    return sortConfig.direction === "asc" ? " ▲" : " ▼";
+  };
+
   return (
     <>
       <Navbar />
       <div className="min-h-screen bg-gray-50">
-        <nav className="bg-white shadow">
-          {/* Your existing Navbar component */}
-        </nav>
-
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-white rounded-lg shadow-lg overflow-hidden">
             {/* Header */}
-            <div className="px-6 py-4 border-b border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h1 className="text-2xl font-semibold text-gray-900">
                 Update Tracking Dashboard
               </h1>
+              <input
+                type="text"
+                placeholder="Search by Hostname or Username"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+              />
             </div>
 
             {/* Filters */}
@@ -191,7 +276,11 @@ const Dashboard = () => {
                     <input
                       type="checkbox"
                       checked={checked}
-                      onChange={() => handleStatusFilterChange(status)}
+                      onChange={() =>
+                        handleStatusFilterChange(
+                          status as keyof typeof statusFilter
+                        )
+                      }
                       className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                     />
                     <span className="text-sm text-gray-600 capitalize">
@@ -200,6 +289,21 @@ const Dashboard = () => {
                   </label>
                 ))}
               </div>
+
+              {/* Counts */}
+              {selectedUpdate && (
+                <div className="flex gap-6 mt-2">
+                  <span className="text-sm font-medium text-gray-700">
+                    Pending: {counts.pending}
+                  </span>
+                  <span className="text-sm font-medium text-gray-700">
+                    Completed: {counts.completed}
+                  </span>
+                  <span className="text-sm font-medium text-gray-700">
+                    Failed: {counts.failed}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Content */}
@@ -228,20 +332,38 @@ const Dashboard = () => {
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead>
                         <tr className="bg-gray-50">
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                            Hostname
+                          <th
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer"
+                            onClick={() => requestSort("hostname")}
+                          >
+                            Hostname {renderSortArrow("hostname")}
+                          </th>
+                          <th
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer"
+                            onClick={() => requestSort("username")}
+                          >
+                            Username {renderSortArrow("username")}
+                          </th>
+                          <th
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer"
+                            onClick={() => requestSort("status")}
+                          >
+                            Status {renderSortArrow("status")}
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                            Username
+                            Action
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                            Status
+                          <th
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer"
+                            onClick={() => requestSort("statusMessage")}
+                          >
+                            Status Message {renderSortArrow("statusMessage")}
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                            Status Message
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                            Last Attempt
+                          <th
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer"
+                            onClick={() => requestSort("lastAttemptDate")}
+                          >
+                            Last Attempt {renderSortArrow("lastAttemptDate")}
                           </th>
                         </tr>
                       </thead>
@@ -262,6 +384,27 @@ const Dashboard = () => {
                               >
                                 {system.status}
                               </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {system.status.toLowerCase() === "completed" && (
+                                <button
+                                  onClick={() => {
+                                    if (selectedUpdateId !== null) {
+                                      handleReassign(
+                                        system.hostname,
+                                        selectedUpdateId
+                                      );
+                                    } else {
+                                      alert(
+                                        "Please select an update before reassigning."
+                                      );
+                                    }
+                                  }}
+                                  className="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                                >
+                                  Reassign
+                                </button>
+                              )}
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-500">
                               {system.statusMessage}

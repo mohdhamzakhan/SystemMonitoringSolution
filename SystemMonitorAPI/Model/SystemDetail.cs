@@ -31,7 +31,12 @@ namespace SystemMonitorAPI.Model
         public string? Domain { get; set; }
         [Column("OUNAME")]
         public string? OUName { get; set; }
-
+        [Column("ENDDATE")]
+        public DateTime? EndDate { get; set; }
+        [Column("PRODUCTID")]
+        public string? ProductId { get; set; }
+        [Column("STARTDATE")]
+        public DateTime? StartDate { get; set; }
 
     }
 }

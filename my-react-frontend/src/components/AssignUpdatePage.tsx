@@ -1,140 +1,56 @@
 import React, { useState, useEffect } from "react";
-import { CheckSquare, Square, AlertCircle } from "lucide-react";
+import { CheckSquare, Square, AlertCircle, ArrowUpDown } from "lucide-react";
 import Navbar from "./Navbar";
 import useAuth from "./useAuth";
 import { APP_CONSTANTS } from "../store";
 
 const AssignUpdatePage = () => {
-  useAuth(); // Ensures the user is authenticated before loading the page
-  const [updates, setUpdates] = useState<any[]>([]); // Change never[] to any[]
+  useAuth();
+  const [updates, setUpdates] = useState<any[]>([]);
   const [hostnames, setHostnames] = useState<
+    { systemID: string; hostname: string; username: string; lastUpdateDate?: string }[]
+  >([]);
+  const [filteredHostnames, setFilteredHostnames] = useState<
     { systemID: string; hostname: string; lastUpdateDate?: string }[]
   >([]);
   const [selectedHostnames, setSelectedHostnames] = useState<string[]>([]);
   const [selectedUpdate, setSelectedUpdate] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [selectAll, setSelectAll] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sortConfig, setSortConfig] = useState<{
+    key: string;
+    direction: "asc" | "desc";
+  } | null>(null);
 
   const API_BASE_URL = APP_CONSTANTS.API_BASE_URL + "/api/installation";
 
-  // Keeping all the original fetch functions and handlers
+  // Fetch Updates
   const fetchUpdates = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/active-updates`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch updates: ${response.status}`);
-      }
       const data = await response.json();
       const allUpdates = data.$values || [];
-      const unassignedUpdates = [];
-
-      for (const update of allUpdates) {
-        try {
-          const assignedResponse = await fetch(
-            `${API_BASE_URL}/assigned-hostnames?updateID=${update.updateID}`
-          );
-
-          if (assignedResponse.status === 404) {
-            // If 404, assume no hostnames are assigned and add the update
-            unassignedUpdates.push(update);
-            continue;
-          }
-
-          if (!assignedResponse.ok) {
-            throw new Error(
-              `Failed to check assigned hostnames for update ${update.updateID}: ${assignedResponse.status}`
-            );
-          }
-
-          const assignedData = await assignedResponse.json();
-
-          if (!assignedData.$values || assignedData.$values.length === 0) {
-            unassignedUpdates.push(update);
-          }
-        } catch (err) {
-          //console.warn(
-          //`Skipping update ${update.updateID} due to API error:`,
-          // err
-          //);
-        }
-      }
-
-      setUpdates(unassignedUpdates);
-    } catch (err) {
-      //console.error(err);
-      setError("Failed to fetch updates. Please try again.");
+      setUpdates(allUpdates);
+    } catch {
+      setError("Failed to fetch updates.");
     }
   };
 
+  // Fetch Hostnames
   const fetchHostnames = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/active-hosts`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch hostnames: ${response.status}`);
-      }
       const data = await response.json();
-      let availableHostnames = data.$values || [];
-
-      if (selectedUpdate) {
-        try {
-          const assignedResponse = await fetch(
-            `${API_BASE_URL}/assigned-hostnames?updateID=${selectedUpdate}`
-          );
-
-          if (assignedResponse.status === 404) {
-            // If 404, assume no hostnames are assigned and keep all available hostnames
-            setHostnames(availableHostnames);
-            return;
-          }
-
-          if (!assignedResponse.ok) {
-            throw new Error(
-              `Failed to fetch assigned hostnames: ${assignedResponse.status}`
-            );
-          }
-
-          const assignedData = await assignedResponse.json();
-          const assignedHostnames = assignedData.values?.$values || [];
-
-          // Function to check if a hostname is assigned
-          const isSame = (
-            host: { hostname: string; systemID: string },
-            assigned: { hostname: string; systemID: string }
-          ) =>
-            host.hostname === assigned.hostname &&
-            host.systemID === assigned.systemID;
-
-          // Filter out already assigned hostnames
-          const onlyInLeft = (
-            left: any[],
-            right: any[],
-            compareFunction: (a: any, b: any) => boolean
-          ) =>
-            left.filter(
-              (leftValue) =>
-                !right.some((rightValue) =>
-                  compareFunction(leftValue, rightValue)
-                )
-            );
-
-          availableHostnames = onlyInLeft(
-            availableHostnames,
-            assignedHostnames,
-            isSame
-          );
-        } catch (err) {
-          //console.warn(`Error fetching assigned hostnames:`, err);
-        }
-      }
-
+      const availableHostnames = data.$values || [];
       setHostnames(availableHostnames);
-    } catch (err) {
-      //console.error(err);
+      setFilteredHostnames(availableHostnames);
+    } catch {
       setError("Failed to fetch hostnames.");
     }
   };
 
+  // Effects
   useEffect(() => {
     fetchUpdates();
   }, []);
@@ -143,10 +59,44 @@ const AssignUpdatePage = () => {
     if (selectedUpdate) {
       fetchHostnames();
       setSelectedHostnames([]);
-      setSelectAll(false);
     }
   }, [selectedUpdate]);
 
+  // Search filter
+  useEffect(() => {
+    let result = [...hostnames];
+
+    if (search) {
+      result = result.filter((h) =>
+        h.hostname.toLowerCase().includes(search.toLowerCase())
+      );
+    }
+
+    if (sortConfig !== null) {
+      result.sort((a, b) => {
+        const aVal = a[sortConfig.key as keyof typeof a];
+        const bVal = b[sortConfig.key as keyof typeof b];
+        if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    setFilteredHostnames(result);
+  }, [hostnames, search, sortConfig]);
+
+  // Sorting toggle
+  const requestSort = (key: string) => {
+    let direction: "asc" | "desc" = "asc";
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === "asc") {
+      direction = "desc";
+    }
+    setSortConfig({ key, direction });
+  };
+
+  
+
+  // Checkbox handlers
   const handleCheckboxChange = (systemID: string) => {
     setSelectedHostnames((prev) =>
       prev.includes(systemID)
@@ -155,23 +105,33 @@ const AssignUpdatePage = () => {
     );
   };
 
-  const handleSelectAllChange = () => {
-    setSelectAll((prev) => !prev);
-    if (!selectAll) {
-      setSelectedHostnames(hostnames.map((host) => host.systemID));
+  const handleSelectAllVisible = () => {
+    const visibleIds = filteredHostnames.map((h) => h.systemID);
+    const allSelected = visibleIds.every((id) =>
+      selectedHostnames.includes(id)
+    );
+
+    if (allSelected) {
+      // Unselect all visible
+      setSelectedHostnames((prev) =>
+        prev.filter((id) => !visibleIds.includes(id))
+      );
     } else {
-      setSelectedHostnames([]);
+      // Select all visible (add missing ones)
+      setSelectedHostnames((prev) => [
+        ...prev,
+        ...visibleIds.filter((id) => !prev.includes(id)),
+      ]);
     }
   };
 
+  // Submit handler
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-
     if (!selectedUpdate) {
       setError("Please select an update.");
       return;
     }
-
     if (selectedHostnames.length === 0) {
       setError("No hostnames selected.");
       return;
@@ -186,32 +146,21 @@ const AssignUpdatePage = () => {
     };
 
     setLoading(true);
-    setError("");
-
     try {
       const response = await fetch(`${API_BASE_URL}/assign-update`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        const errorDetails = await response.text();
-        throw new Error(
-          `Failed to assign update: ${response.status} - ${errorDetails}`
-        );
-      }
+      if (!response.ok) throw new Error("Failed to assign update.");
 
       alert("Update assigned successfully!");
-      setSelectedUpdate("");
       setSelectedHostnames([]);
       setHostnames([]);
-      setSelectAll(false);
-      fetchUpdates();
-    } catch (err) {
-      //console.error(err);
+      setFilteredHostnames([]);
+      setSelectedUpdate("");
+    } catch {
       setError("Failed to assign update. Please try again.");
     } finally {
       setLoading(false);
@@ -222,7 +171,7 @@ const AssignUpdatePage = () => {
     <>
       <Navbar />
       <div className="min-h-screen bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-white rounded-lg shadow-lg overflow-hidden">
             {/* Header */}
             <div className="px-6 py-4 border-b border-gray-200">
@@ -231,126 +180,140 @@ const AssignUpdatePage = () => {
               </h1>
             </div>
 
-            {/* Content */}
             <div className="px-6 py-4">
-              {loading ? (
-                <div className="flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Update Dropdown */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Update
+                  </label>
+                  <select
+                    value={selectedUpdate}
+                    onChange={(e) => setSelectedUpdate(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 p-2"
+                  >
+                    <option value="">-- Select an Update --</option>
+                    {updates.map((update) => (
+                      <option key={update.updateID} value={update.updateID}>
+                        {update.updateName} (ID: {update.updateID})
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              ) : (
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  {/* Update Selection */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Select Update
-                    </label>
-                    <select
-                      value={selectedUpdate}
-                      onChange={(e) => setSelectedUpdate(e.target.value)}
-                      className="w-full rounded-md border border-gray-300 p-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    >
-                      <option value="">-- Select an Update --</option>
-                      {updates.map((update) => (
-                        <option key={update.updateID} value={update.updateID}>
-                          {update.filePath} (ID: {update.updateID})
-                        </option>
-                      ))}
-                    </select>
+
+                {/* Search */}
+                <input
+                  type="text"
+                  placeholder="Search hostnames..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 p-2"
+                />
+
+                {/* Error */}
+                {error && (
+                  <div className="rounded-md bg-red-50 p-4 flex items-center">
+                    <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
+                    <span className="text-sm text-red-800">{error}</span>
                   </div>
+                )}
 
-                  {/* Error Message */}
-                  {error && (
-                    <div className="rounded-md bg-red-50 p-4">
-                      <div className="flex">
-                        <AlertCircle className="h-5 w-5 text-red-400" />
-                        <div className="ml-3">
-                          <h3 className="text-sm font-medium text-red-800">
-                            {error}
-                          </h3>
-                        </div>
-                      </div>
+                {/* Table */}
+                {filteredHostnames.length > 0 && (
+                  <div className="mt-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          onChange={handleSelectAllVisible}
+                          checked={filteredHostnames.every((h) =>
+                            selectedHostnames.includes(h.systemID)
+                          )}
+                          className="rounded border-gray-300 text-indigo-600"
+                        />
+                        <span className="text-sm">
+                          Select All (Visible)
+                        </span>
+                      </label>
+                      <span className="text-sm text-gray-600">
+                        {selectedHostnames.length} selected out of{" "}
+                        {hostnames.length}
+                      </span>
                     </div>
-                  )}
 
-                  {/* Hostnames Table */}
-                  {hostnames.length > 0 && (
-                    <div className="mt-4">
-                      <div className="bg-gray-50 rounded-t-lg border border-gray-200 px-4 py-3">
-                        <label className="flex items-center space-x-2">
-                          <input
-                            type="checkbox"
-                            checked={selectAll}
-                            onChange={handleSelectAllChange}
-                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                          />
-                          <span className="text-sm font-medium text-gray-700">
-                            Select All Hostnames
-                          </span>
-                        </label>
-                      </div>
-                      <div className="border-x border-b border-gray-200 rounded-b-lg overflow-hidden">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Select
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Hostname
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Last Update Date
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {hostnames.map((host) => (
-                              <tr
-                                key={host.systemID}
-                                className="hover:bg-gray-50"
-                              >
-                                <td className="px-6 py-4">
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedHostnames.includes(
-                                      host.systemID
-                                    )}
-                                    onChange={() =>
-                                      handleCheckboxChange(host.systemID)
-                                    }
-                                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                                  />
-                                </td>
-                                <td className="px-6 py-4 text-sm text-gray-900">
-                                  {host.hostname}
-                                </td>
-                                <td className="px-6 py-4 text-sm text-gray-500">
-                                  {host.lastUpdateDate
-                                    ? new Date(
-                                        host.lastUpdateDate
-                                      ).toLocaleString()
-                                    : "N/A"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Submit Button */}
-                  <div className="flex justify-end">
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-                    >
-                      Assign Update
-                    </button>
+                    <table className="min-w-full divide-y divide-gray-200 border">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                            Select
+                          </th>
+                          <th
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer"
+                            onClick={() => requestSort("hostname")}
+                          >
+                            Hostname <ArrowUpDown className="inline w-4 h-4" />
+                          </th>
+                          <th
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer"
+                            onClick={() => requestSort("username")}
+                          >
+                            Username <ArrowUpDown className="inline w-4 h-4" />
+                          </th>
+                          <th
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer"
+                            onClick={() => requestSort("lastUpdateDate")}
+                          >
+                            Last Update Date{" "}
+                            <ArrowUpDown className="inline w-4 h-4" />
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredHostnames.map((host) => (
+                          <tr key={host.systemID}>
+                            <td className="px-6 py-4">
+                              <input
+                                type="checkbox"
+                                checked={selectedHostnames.includes(
+                                  host.systemID
+                                )}
+                                onChange={() =>
+                                  handleCheckboxChange(host.systemID)
+                                }
+                                className="rounded border-gray-300 text-indigo-600"
+                              />
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-900">
+                              {host.hostname}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-900">
+                              {host.username}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-500">
+                              {host.lastUpdateDate
+                                ? new Date(
+                                    host.lastUpdateDate
+                                  ).toLocaleString()
+                                : "N/A"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                </form>
-              )}
+                )}
+
+                {/* Submit */}
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                  >
+                    Assign Update
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>

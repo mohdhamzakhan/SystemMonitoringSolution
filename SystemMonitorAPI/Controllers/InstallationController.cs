@@ -193,7 +193,7 @@ namespace SystemMonitorAPI.Controllers
                     UpdateID = request.UpdateID,
                     Status = request.Status,
                     StatusMessage = request.StatusMessage,
-                    LastAttemptDate = DateTime.UtcNow
+                    LastAttemptDate = DateTime.Now
                 };
 
                 _context.SystemUpdates.Add(systemUpdate);
@@ -273,12 +273,14 @@ namespace SystemMonitorAPI.Controllers
         public async Task<IActionResult> GetActiveHosts()
         {
             var activeHosts = await _context.Systems
-                .Where(s => s.IsActive)
+                .Join(_context.SystemDetails, u=>u.Hostname, s=>s.Hostname, (u,s) => new {u,s})
+                .Where(s => s.u.IsActive)
                 .Select(s => new
                 {
-                    s.SystemID,
-                    s.Hostname,
-                    s.LastUpdateDate
+                    s.u.SystemID,
+                    s.u.Hostname,
+                    s.s.Username,
+                    s.u.LastUpdateDate
                 })
                 .ToListAsync();
 
@@ -363,8 +365,30 @@ namespace SystemMonitorAPI.Controllers
                 return BadRequest("An error occurred while updating the installation status.");
             }
         }
+        public class ReassignRequest
+        {
+            public string Hostname { get; set; }
+            public int UpdateId { get; set; }
+        }
+        [HttpPost("reassign")]
+        public async Task<IActionResult> ReassignTask([FromBody] ReassignRequest request)
+        {
 
+            var systemUpdate = await _context.SystemUpdates
+                .FirstOrDefaultAsync(su => su.SystemInfo.Hostname == request.Hostname && su.UpdateID == request.UpdateId);
 
+            if (systemUpdate == null)
+                return NotFound("System update not found.");
+
+            // Reset status to Pending so it can be reassigned
+            systemUpdate.Status = "Pending";
+            systemUpdate.StatusMessage = "Task reassigned";
+            systemUpdate.LastAttemptDate = DateTime.Now;
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Task reassigned successfully." });
+        }
 
         /// <summary>
         /// Retrieves the decrypted password for a given hostname.
@@ -413,6 +437,43 @@ namespace SystemMonitorAPI.Controllers
                 return BadRequest();
             }
         }
+        [HttpDelete("update-info/{id}")]
+        public async Task<IActionResult> DeleteUpdateInfo(int id)
+        {
+            // Load the UpdateInfo with related SystemUpdates + Logs
+            var update = await _context.Updates
+                .Include(u => u.SystemUpdates)
+                .FirstOrDefaultAsync(u => u.UpdateID == id);
+
+            if (update == null)
+                return NotFound(new { message = $"Update with ID {id} not found." });
+
+            // Step 1: Delete related SystemUpdates (if any)
+            if (update.SystemUpdates.Any())
+            {
+                _context.SystemUpdates.RemoveRange(update.SystemUpdates);
+            }
+
+            // Step 2: Delete related UpdateLogs (if any)
+            var logs = await _context.UpdateLogs
+                .Where(l => l.UpdateID == id)
+                .ToListAsync();
+
+            if (logs.Any())
+            {
+                _context.UpdateLogs.RemoveRange(logs);
+            }
+
+            // Step 3: Delete the UpdateInfo itself
+            _context.Updates.Remove(update);
+
+            // Save changes
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Update, related system updates, and logs deleted successfully." });
+        }
+
+
         #endregion
 
         #region uninstall

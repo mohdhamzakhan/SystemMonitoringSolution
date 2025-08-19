@@ -16,70 +16,91 @@ namespace SystemMonitorAPI.Controllers
         }
         [HttpGet("filter")]
         public async Task<ActionResult<IEnumerable<object>>> GetFilteredSystemInfo(
-     [FromQuery] string? osVersion,
-     [FromQuery] string? osName,
-     [FromQuery] string? hostname,
-     [FromQuery] string? make,
-     [FromQuery] string? domain,
-     [FromQuery] string? isEncrypted,
-     [FromQuery] string? productState)
+    [FromQuery] string? search
+)
         {
+            var diskInfoGrouped = _context.DiskInfo
+                .Where(x=>x.InterfaceType != "USB")
+    .GroupBy(x => x.Hostname)
+    .Select(g => new { Hostname = g.Key, Capacities = string.Join(", ", g.Select(d => d.Capacity)) });
+
             var query = _context.SystemDetails
-                .Join(_context.antivirusInfos, r => r.Hostname, u => u.Hostname, (r, u) => new { r, u })
-                .Join(_context.DiskDetails, d => d.r.Hostname, disk => disk.Hostname, (d, disk) => new { d, disk })
-                .Where(x => x.disk.TypeOfDrive.Equals("Fixed") && x.d.u.DisplayName.Equals("Windows Defender"))
+                .Join(_context.Devices, s => s.Hostname, d => d.Hostname, (s, d) => new { s, d })
+                .Join(_context.antivirusInfos, r => r.d.Hostname, u => u.Hostname, (r, u) => new { r, u })
+                .Join(_context.DiskDetails, d => d.r.d.Hostname, disk => disk.Hostname, (d, disk) => new { d, disk })
+                .Join(diskInfoGrouped, u => u.d.r.d.Hostname, hdd => hdd.Hostname, (u, hdd) => new { u, hdd })
+                .Where(x => x.u.disk.TypeOfDrive == "Fixed" && x.u.d.u.DisplayName == "Windows Defender")
+                .AsEnumerable()
                 .GroupBy(s => new
                 {
-                    s.d.r.Hostname,
-                    s.d.r.Username,
-                    s.d.r.OSVersion,
-                    s.d.r.Make,
-                    s.d.r.Domain,
-                    s.d.u.ProductState,
-                    s.d.u.DisplayName,
-                    s.d.r.OSName
+                    s.u.d.r.d.Hostname,
+                    s.u.d.r.d.Username,
+                    s.u.d.r.s.OSVersion,
+                    s.u.d.r.s.Make,
+                    s.u.d.r.s.OSName,
+                    s.u.d.r.s.ProcessorFamily,
+                    s.u.d.r.s.BIOSSerial,
+                    s.u.d.r.s.ProductId,
+                    s.u.d.r.s.Model,
+                    s.u.d.r.d.Department,
+                    s.u.d.r.s.PhysicalMemory,
+                    s.u.d.r.s.StartDate,
+                    s.u.d.r.s.EndDate
+                    
                 })
                 .Select(g => new
                 {
                     g.Key.Hostname,
                     g.Key.Username,
-                    g.Key.OSVersion,
+                    g.Key.Department,
                     g.Key.Make,
-                    g.Key.Domain,
-                    g.Key.ProductState,
-                    g.Key.DisplayName,
+                    g.Key.Model,
+                    g.Key.BIOSSerial,
+                    g.Key.ProductId,
+                    g.Key.OSVersion,
                     g.Key.OSName,
-                    // 🔍 Encryption logic: All, Some, or None
-                    EncryptionStatus = g.All(d => d.disk.isEncrypted == 1) ? "Encrypted" :
-                                       g.Any(d => d.disk.isEncrypted == 1) ? "Partially Encrypted" :
+                    g.Key.ProcessorFamily,
+                    g.Key.PhysicalMemory,
+                    g.Key.StartDate,
+                    g.Key.EndDate,
+
+                    // Use grouped disk info here (already deduplicated)
+                    DiskInfo = g.First().hdd.Capacities,
+
+
+                    EncryptionStatus = g.All(d => d.u.disk.isEncrypted == 1) ? "Encrypted" :
+                                       g.Any(d => d.u.disk.isEncrypted == 1) ? "Partially Encrypted" :
                                        "Not Encrypted"
-                });
+                })
+                .ToList();
 
-            // Apply filters dynamically
-            if (!string.IsNullOrEmpty(osVersion))
-                query = query.Where(s => s.OSVersion == osVersion);
+            // 🔍 Global search filter
+            if (!string.IsNullOrEmpty(search))
+            {
+                search = search.ToLower();
 
-            if (!string.IsNullOrEmpty(hostname))
-                query = query.Where(s => s.Hostname.Contains(hostname));
+                query = query.Where(s =>
+                    (s.Hostname != null && s.Hostname.ToLower().Contains(search)) ||
+                    (s.Username != null && s.Username.ToLower().Contains(search)) ||
+                    (s.Department != null && s.Department.ToLower().Contains(search)) ||
+                    (s.Make != null && s.Make.ToLower().Contains(search)) ||
+                    (s.Model != null && s.Model.ToLower().Contains(search)) ||
+                    (s.BIOSSerial != null && s.BIOSSerial.ToLower().Contains(search)) ||
+                    (s.ProductId != null && s.ProductId.ToLower().Contains(search)) ||
+                    (s.OSVersion != null && s.OSVersion.ToLower().Contains(search)) ||
+                    (s.OSName != null && s.OSName.ToLower().Contains(search)) ||
+                    (s.ProcessorFamily != null && s.ProcessorFamily.ToLower().Contains(search)) ||
+                    s.PhysicalMemory.ToString().Contains(search) ||
+                    (s.DiskInfo != null && s.DiskInfo.ToLower().Contains(search)) || // 🆕 include full disk info in search
+                    (s.EncryptionStatus != null && s.EncryptionStatus.ToLower().Contains(search))
+                ).ToList();
+            }
 
-            if (!string.IsNullOrEmpty(make))
-                query = query.Where(s => s.Make == make);
-
-            if (!string.IsNullOrEmpty(domain))
-                query = query.Where(s => s.Domain == domain);
-
-            if (!string.IsNullOrEmpty(isEncrypted))
-                query = query.Where(s => s.EncryptionStatus == isEncrypted);
-
-            if (!string.IsNullOrEmpty(productState))
-                query = query.Where(s => s.ProductState == productState);
-
-
-            if (!string.IsNullOrEmpty(osName))
-                query = query.Where(s => s.OSName.Contains(osName));
-
-            return Ok(await query.ToListAsync());
+            return Ok(query);
         }
+
+
+
 
 
 

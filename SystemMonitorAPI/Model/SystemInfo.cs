@@ -40,6 +40,8 @@ namespace SystemMonitorAPI.Model
         public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
         [Column("ISACTIVE")]
         public bool IsActive { get; set; } = true;
+        [Column("ISLOCAL")]
+        public bool IsLocal { get; set; } = false;
 
         // Navigation property for SystemUpdate (many-to-many)
         public virtual ICollection<SystemUpdate> SystemUpdates { get; set; }
