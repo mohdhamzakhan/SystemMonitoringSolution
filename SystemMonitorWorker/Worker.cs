@@ -1,6 +1,8 @@
+﻿using Microsoft.Win32;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System.Diagnostics;
+using System.Diagnostics.Eventing.Reader;
 using System.DirectoryServices;
 using System.DirectoryServices.AccountManagement;
 using System.Globalization;
@@ -24,22 +26,60 @@ namespace SystemMonitorWorker
         private const string ApiBaseUrl = @"http://10.235.20.49:5295/api";
         string password = string.Empty;
         string workingDirectory = @"C:\MEAI\Installer";
+        private readonly object _eventFileLock = new();
+        private readonly string _eventStorePath =
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "SystemMonitor",
+                "offline_events.json");
+
         public Worker(ILogger<Worker> logger, HttpClient httpClient)
         {
             _logger = logger;
             _httpClient = httpClient;
         }
 
+
         public override async Task StartAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Service is starting...");
-            if (!Directory.Exists(workingDirectory))
-                Directory.CreateDirectory(workingDirectory);
-            DeleteFiles(workingDirectory);
-            _httpClient.Timeout = TimeSpan.FromMinutes(5);
-            await RegisterTaskFor15MinCheck();
+            _logger.LogInformation("Service starting");
+
+            SaveEvent("Startup");           // Startup detected
+            await SyncEventsToApiAsync();   // Sync pending events
+
+            SystemEvents.SessionSwitch += OnSessionSwitch;
+            SystemEvents.SessionEnding += OnSessionEnding;
+
+            NetworkChange.NetworkAvailabilityChanged += async (_, e) =>
+            {
+                if (e.IsAvailable)
+                    await SyncEventsToApiAsync();
+            };
+
             await base.StartAsync(cancellationToken);
         }
+
+        private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
+        {
+            string eventType = e.Reason switch
+            {
+                SessionSwitchReason.SessionLogon => "Login",
+                SessionSwitchReason.SessionLogoff => "Logout",
+                SessionSwitchReason.SessionLock => "Lock",
+                SessionSwitchReason.SessionUnlock => "Unlock",
+                _ => null
+            };
+
+            if (eventType == null) return;
+
+            SaveEvent(eventType);
+        }
+        private void OnSessionEnding(object sender, SessionEndingEventArgs e)
+        {
+            SaveEvent("Shutdown");
+        }
+
+
 
 
         #region TaskRegisterForEvery15MinCheck
@@ -334,10 +374,11 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
 
             while (!stoppingToken.IsCancellationRequested)
             {
+
                 try
                 {
                     var currentTime = DateTime.Now;
-
+                    await SyncEventsToApiAsync();
                     if (currentTime - lastSystemInfoSent >= systemInfoInterval)
                     {
                         var hostname = Environment.MachineName;
@@ -1127,6 +1168,8 @@ Start-ScheduledTask -TaskName $taskName
 
             deviceInfo.MonitorInfos = GetMonitorInfos(deviceInfo);
 
+            deviceInfo.BatteryInfos = GetBatteryInfo(deviceInfo);
+
             // deviceInfo.firewallProfileInfo = GetFirewallProfiles(deviceInfo);
 
             return deviceInfo;
@@ -1273,8 +1316,68 @@ Start-ScheduledTask -TaskName $taskName
                 _ => "Unknown or Error"
             };
         }
-
-
+        [SupportedOSPlatform("windows")]
+        public List<BatteryInfo> GetBatteryInfo(DeviceInfo device)
+        {
+            List<BatteryInfo> list = new List<BatteryInfo>();
+            try
+            {
+                ManagementObjectSearcher managementObjectSearcher = new ManagementObjectSearcher("Select * from Win32_Battery");
+                ManagementObjectSearcher managementObjectSearcher2 = new ManagementObjectSearcher("ROOT\\WMI", "SELECT * FROM BatteryStaticData");
+                ManagementObjectSearcher managementObjectSearcher3 = new ManagementObjectSearcher("ROOT\\WMI", "SELECT * FROM BatteryFullChargedCapacity");
+                string name = "";
+                int? estimatedChargeRemaining = null;
+                string s = "";
+                foreach (ManagementObject item in managementObjectSearcher.Get())
+                {
+                    name = item["Name"]?.ToString();
+                    estimatedChargeRemaining = int.Parse(item["EstimatedChargeRemaining"].ToString());
+                    s = item["BatteryStatus"]?.ToString();
+                }
+                int? designCapacity = null;
+                foreach (ManagementObject item2 in managementObjectSearcher2.Get())
+                {
+                    designCapacity = int.Parse(item2["DesignedCapacity"].ToString());
+                }
+                int? fullChargedCapacity = null;
+                foreach (ManagementObject item3 in managementObjectSearcher3.Get())
+                {
+                    fullChargedCapacity = int.Parse(item3["FullChargedCapacity"].ToString());
+                }
+                list.Add(new BatteryInfo
+                {
+                    Hostname = device.Hostname,
+                    Name = name,
+                    EstimatedChargeRemaining = estimatedChargeRemaining,
+                    BatteryStatus = GetBatteryStatusDescription(int.Parse(s)),
+                    DesignCapacity = designCapacity,
+                    FullChargedCapacity = fullChargedCapacity
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error retrieving battery details: " + ex.Message);
+            }
+            return list;
+        }
+        public static string GetBatteryStatusDescription(int status)
+        {
+            return status switch
+            {
+                1 => "Discharging",
+                2 => "AC power",
+                3 => "Fully Charged",
+                4 => "Low",
+                5 => "Critical",
+                6 => "Charging",
+                7 => "Charging and High",
+                8 => "Charging and Low",
+                9 => "Charging and Critical",
+                10 => "Undefined",
+                11 => "Partially Charged",
+                _ => "Unknown",
+            };
+        }
         [SupportedOSPlatform("windows")]
         public List<MonitorInfo> GetMonitorInfos(DeviceInfo device)
         {
@@ -1775,7 +1878,6 @@ Start-ScheduledTask -TaskName $taskName
 
             return firewallProfiles;
         }
-
         #endregion
 
         #region DeleteFile
@@ -1791,6 +1893,103 @@ Start-ScheduledTask -TaskName $taskName
                 }
             }
         }
+        #endregion
+
+        #region For Event Lg Collection
+        private void SaveEvent(string eventType)
+        {
+            try
+            {
+                var evt = new OfflineSystemEvent
+                {
+                    Hostname = Environment.MachineName,
+                    Username = Environment.UserName,
+                    EventType = eventType,
+                    EventTime = DateTime.Now
+                };
+
+                lock (_eventFileLock)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(_eventStorePath)!);
+
+                    var list = File.Exists(_eventStorePath)
+                        ? JsonConvert.DeserializeObject<List<OfflineSystemEvent>>(
+                            File.ReadAllText(_eventStorePath)) ?? new()
+                        : new();
+
+                    list.Add(evt);
+
+                    File.WriteAllText(
+                        _eventStorePath,
+                        JsonConvert.SerializeObject(list, Formatting.Indented));
+                }
+
+                _logger.LogInformation($"Event saved locally: {eventType}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save offline event");
+            }
+        }
+
+        private bool IsNetworkAvailable()
+        {
+            return NetworkInterface.GetIsNetworkAvailable();
+        }
+        private async Task SyncEventsToApiAsync()
+        {
+            if (!NetworkInterface.GetIsNetworkAvailable()) return;
+
+            List<OfflineSystemEvent> allEvents;
+
+            lock (_eventFileLock)
+            {
+                if (!File.Exists(_eventStorePath)) return;
+
+                allEvents = JsonConvert.DeserializeObject<List<OfflineSystemEvent>>(
+                    File.ReadAllText(_eventStorePath)) ?? new();
+            }
+
+            var pending = allEvents.Where(e => !e.Synced).ToList();
+            if (!pending.Any()) return;
+
+            var payload = pending.Select(e => new
+            {
+                clientEventId = e.Id.ToString(),
+                hostname = e.Hostname,
+                username = e.Username,
+                eventType = e.EventType,
+                eventTime = e.EventTime,
+                source = "Session"
+            }).ToList();
+
+            try
+            {
+                var response = await _httpClient.PostAsJsonAsync(
+                    $"{ApiBaseUrl}/Devices/SystemEvents",
+                    payload);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    foreach (var evt in pending)
+                        evt.Synced = true;
+
+                    lock (_eventFileLock)
+                    {
+                        File.WriteAllText(
+                            _eventStorePath,
+                            JsonConvert.SerializeObject(allEvents, Formatting.Indented));
+                    }
+                }
+            }
+            catch
+            {
+                // Network/API down → retry later
+            }
+        }
+
+
+
         #endregion
     }
 
@@ -1825,6 +2024,16 @@ Start-ScheduledTask -TaskName $taskName
 
         public List<FirewallProfileInfo> firewallProfileInfo { get; set; }
         public List<MonitorInfo> MonitorInfos { get; set; }
+        public List<BatteryInfo> BatteryInfos { get; set; }
+    }
+    public class OfflineSystemEvent
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public string Hostname { get; set; }
+        public string Username { get; set; }
+        public string EventType { get; set; } // Login, Logout, Lock, Unlock, Startup, Shutdown
+        public DateTime EventTime { get; set; }
+        public bool Synced { get; set; } = false;
     }
 
     public class SoftwareInfo
@@ -1925,5 +2134,21 @@ Start-ScheduledTask -TaskName $taskName
 
         public DeviceInfo Device { get; set; } // Add the Device field here
     }
+
+    public class BatteryInfo
+    {
+        public int? EstimatedChargeRemaining { get; set; }
+
+        public string BatteryStatus { get; set; }
+
+        public int? DesignCapacity { get; set; }
+
+        public int? FullChargedCapacity { get; set; }
+
+        public string Name { get; set; }
+
+        public string Hostname { get; set; }
+    }
+
     #endregion
 }

@@ -1,60 +1,66 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
 using SystemMonitorAPI.Model;
 
-
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Controllers
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.Preserve;
+    });
 
-builder.Services.AddControllers();
-
-builder.Services.AddDbContext<SystemMonitorContext>(options => options.UseOracle(builder.Configuration.GetConnectionString("DefaultConnection"),
-    options => options.UseOracleSQLCompatibility(OracleSQLCompatibility.DatabaseVersion19))
+// DB
+builder.Services.AddDbContext<SystemMonitorContext>(options =>
+    options.UseOracle(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        o => o.UseOracleSQLCompatibility(OracleSQLCompatibility.DatabaseVersion19))
     .UseLazyLoadingProxies());
 
-//builder.Services.AddDbContext<SystemMonitorContext>(options =>
-//    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")).UseLazyLoadingProxies());
+// Services
 builder.Services.AddScoped<IDeviceService, DeviceService>();
-// Add other services
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSignalR();
-builder.Services.AddSwaggerGen();
-builder.Services.AddControllers().AddJsonOptions(options =>
-{
-    options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.Preserve;
-});
+builder.Services.AddSingleton<CredentialService>();
 
+builder.Services.AddSignalR();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// ✅ CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        policy
+            .WithOrigins(
+                "http://localhost:3000",
+                "http://10.235.20.49:5296",
+                "http://10.235.20.49:5294"
+            )
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
-//builder.Services.AddSwaggerGen();
-builder.Services.AddSingleton<CredentialService>();
+
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-using(var scope = app.Services.CreateScope())
+// DB init
+using (var scope = app.Services.CreateScope())
 {
-    var services = scope.ServiceProvider;
-    var context = services.GetRequiredService<SystemMonitorContext>();
-
+    var context = scope.ServiceProvider.GetRequiredService<SystemMonitorContext>();
     context.Database.EnsureCreated();
-
-    var credentialService = services.GetRequiredService<CredentialService>();
 }
 
-
-app.UseAuthorization();
+// 🔥 ORDER MATTERS
+app.UseRouting();
 app.UseCors("AllowAll");
-app.MapControllers();
+app.UseAuthorization();
+
 app.UseSwagger();
 app.UseSwaggerUI();
+
+app.MapControllers();
 app.MapHub<DeviceHub>("/deviceHub");
 
 app.Run();

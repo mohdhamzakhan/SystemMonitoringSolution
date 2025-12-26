@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Cors;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using System.DirectoryServices.AccountManagement;
@@ -12,6 +13,7 @@ namespace SystemMonitorAPI.Controllers
 {
     [Route("api/auth")]
     [ApiController]
+    [EnableCors("AllowAll")]
     public class AuthenticationController : ControllerBase
     {
         private readonly IConfiguration _config;

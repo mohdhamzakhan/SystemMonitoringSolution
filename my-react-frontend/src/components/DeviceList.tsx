@@ -6,7 +6,7 @@ import LoadingPage from "./Loading.jsx";
 import Navbar from "./Navbar.jsx";
 import { APP_CONSTANTS } from "../store.js";
 import useAuth from "./useAuth.ts";
-import { Key } from "lucide-react";
+import { Key, Trash2  } from "lucide-react";
 
 // Define the type for a device
 interface Device {
@@ -73,6 +73,13 @@ const DeviceList: React.FC = () => {
             }
           });
         });
+
+        hubConnection.on("DeviceDeleted", (hostname: string) => {
+          setDevices((prev) =>
+            prev.filter((device) => device.hostname !== hostname)
+          );
+        });
+
       })
       .catch((err) =>
         console.error("Error establishing SignalR connection:", err)
@@ -100,6 +107,23 @@ const DeviceList: React.FC = () => {
       return device.status.toLowerCase() === "disconnected";
     return true;
   });
+
+  const handleDeleteDevice = async (hostname: string) => {
+  if (!window.confirm(`Delete device ${hostname}? This cannot be undone.`))
+    return;
+
+  try {
+    await axios.delete(
+      `${APP_CONSTANTS.API_BASE_URL}/api/devices/${hostname}`
+    );
+
+    setDevices((prev) =>
+      prev.filter((device) => device.hostname !== hostname)
+    );
+  } catch (err) {
+    alert("Failed to delete device");
+  }
+};
 
   const searchedDevices = filteredDevices.filter(
     (device) =>
@@ -218,6 +242,9 @@ const DeviceList: React.FC = () => {
                         (sortDirection === "asc" ? " ▲" : " ▼")}
                     </th>
                   ))}
+                  <th className="p-4 text-sm font-semibold text-gray-600 border-b">
+                      Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -249,6 +276,16 @@ const DeviceList: React.FC = () => {
                     <td className="p-4 text-gray-600">
                       {new Date(device.lastUpdated).toLocaleString()}
                     </td>
+                    <td className="p-4 text-center">
+                        <button
+                          onClick={() => handleDeleteDevice(device.hostname)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Delete Device"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                  </td>
+
                   </tr>
                 ))}
               </tbody>

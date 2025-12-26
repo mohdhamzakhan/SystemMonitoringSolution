@@ -29,6 +29,9 @@ namespace SystemMonitorAPI.Model
         public virtual ICollection<antivirusInfos> antivirusInfos { get; set; }
 
         public virtual ICollection<MonitorDetail> MonitorDetails { get; set; }
+        public virtual ICollection<BatteryInfo> BatteryInfos { get; set; }
+    = new List<BatteryInfo>();
+
 
     }
 }

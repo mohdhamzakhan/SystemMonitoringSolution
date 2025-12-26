@@ -1,13 +1,16 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Cors;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Runtime.Intrinsics.X86;
+using System.Xml.Linq;
 using SystemMonitorAPI.Model;
 
 namespace SystemMonitorAPI.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [EnableCors("AllowAll")]
     public class DevicesController : ControllerBase
     {
         private readonly SystemMonitorContext _context;
@@ -42,6 +45,7 @@ namespace SystemMonitorAPI.Controllers
             {
                 existingDevice.Status = "Connected";
                 existingDevice.LastUpdated = DateTime.Now;
+                existingDevice.Username = deviceInfo.Username;
             }
 
             // Add or update system details
@@ -336,6 +340,7 @@ namespace SystemMonitorAPI.Controllers
                 }
             }
 
+
             var currentMonitor = deviceInfo.MonitorInfos.Select(d => d.SerialNo).ToList();
 
             var monitorDatabase = await _context.MonitorDetail
@@ -475,6 +480,49 @@ namespace SystemMonitorAPI.Controllers
                 _context.PhysicalMemoryInfo.RemoveRange(memoryToDelete);
             }
 
+            foreach (var battery in deviceInfo.BatteryInfos)
+            {
+                var existingBattery = _context.BatteryInfo.FirstOrDefault(d =>
+                d.Hostname == existingDevice.Hostname && d.Name == battery.Name
+                );
+                if (existingBattery != null)
+                {
+                    existingBattery.FullChargedCapacity = battery.FullChargedCapacity;
+                    existingBattery.EstimatedChargeRemaining = battery.EstimatedChargeRemaining;
+                    existingBattery.BatteryStatus = battery.BatteryStatus;
+                    existingBattery.DesignCapacity = battery.DesignCapacity;
+                }
+                else
+                {
+                    _context.BatteryInfo.Add(new BatteryInfo
+                    {
+                        Hostname = existingDevice.Hostname,
+                        Name = battery.Name,
+                        FullChargedCapacity = battery.FullChargedCapacity,
+                        EstimatedChargeRemaining = battery.EstimatedChargeRemaining,
+                        BatteryStatus = battery.BatteryStatus,
+                        DesignCapacity = battery.DesignCapacity
+                    });
+                }
+            }
+
+            var currentBattery = deviceInfo.BatteryInfos.Select(d => d.Name).ToList();
+
+            var batteryDatabase = await _context.BatteryInfo
+                .Where(d => d.Hostname == existingDevice.Hostname)
+                .ToListAsync();
+
+            // Delete disks that are not in the current deviceInfo
+            var batteryToDelete = batteryDatabase
+                .Where(d => !currentBattery.Contains(d.Name))
+                .ToList();
+
+            if (batteryToDelete.Any())
+            {
+                _context.BatteryInfo.RemoveRange(batteryToDelete);
+            }
+
+
 
             try
             {
@@ -487,6 +535,41 @@ namespace SystemMonitorAPI.Controllers
 
             return Ok();
         }
+
+        [HttpPost("SystemEvents")]
+        public async Task<IActionResult> AddEvents(
+        [FromBody] List<SystemEventInfo> events)
+        {
+            if (events == null || events.Count == 0)
+                return Ok(); // Nothing to insert
+
+            // Get already existing ClientEventIds
+            var clientIds = events.Select(e => e.ClientEventId).ToList();
+
+            var existingIds = await _context.SystemEvents
+                .Where(e => clientIds.Contains(e.ClientEventId))
+                .Select(e => e.ClientEventId)
+                .ToListAsync();
+
+            // Filter out duplicates
+            var newEvents = events
+                .Where(e => !existingIds.Contains(e.ClientEventId))
+                .ToList();
+
+            if (newEvents.Any())
+            {
+                await _context.SystemEvents.AddRangeAsync(newEvents);
+                await _context.SaveChangesAsync();
+            }
+
+            return Ok(new
+            {
+                Received = events.Count,
+                Inserted = newEvents.Count,
+                Duplicates = events.Count - newEvents.Count
+            });
+        }
+
 
         [HttpPost("UpdateDepartment")]
         public async Task<IActionResult> UpdateDepartment([FromBody] List<ComputerInfo> computers)
@@ -514,7 +597,6 @@ namespace SystemMonitorAPI.Controllers
         }
 
         [HttpPost("UpdateBitLocker")]
-
         public async Task<IActionResult> UpdateBitLocker([FromBody] List<BitLockerKey> keys)
         {
             if (keys == null || keys.Count == 0)
@@ -524,13 +606,14 @@ namespace SystemMonitorAPI.Controllers
 
             foreach (var key in keys)
             {
-                // Check if a record with the same Hostname and Identifier already exists
                 var existingBitlocker = await _context.BitLockerKey
-                    .FirstOrDefaultAsync(d => d.Identifier == key.Identifier && d.Hostname == key.Hostname);
+                    .FirstOrDefaultAsync(d =>
+                        d.Identifier == key.Identifier &&
+                        d.Hostname == key.Hostname
+                    );
 
                 if (existingBitlocker == null)
                 {
-                    // Add a new record if it doesn't exist
                     _context.BitLockerKey.Add(new BitLockerKey
                     {
                         Hostname = key.Hostname,
@@ -539,22 +622,12 @@ namespace SystemMonitorAPI.Controllers
                         RecoveryKey = key.RecoveryKey
                     });
                 }
-            }
-
-            // Get a list of Identifiers from the incoming data
-            var bitLockerIdentifiers = keys.Select(d => d.Identifier).ToList();
-
-            // Retrieve all existing records in the database
-            var bitLockerDatabase = await _context.BitLockerKey.ToListAsync();
-
-            // Identify keys that need to be deleted (not present in the incoming request)
-            var keysToDelete = bitLockerDatabase
-                .Where(d => !bitLockerIdentifiers.Contains(d.Identifier))
-                .ToList();
-
-            if (keysToDelete.Any())
-            {
-                _context.BitLockerKey.RemoveRange(keysToDelete);
+                else
+                {
+                    // OPTIONAL: update fields if they can change
+                    existingBitlocker.PasswordId = key.PasswordId;
+                    existingBitlocker.RecoveryKey = key.RecoveryKey;
+                }
             }
 
             await _context.SaveChangesAsync();
@@ -634,16 +707,21 @@ namespace SystemMonitorAPI.Controllers
                 device.r.LastUpdated,
                 systemDetail = systemDetails != null ? new
                 {
-                    systemDetails.BIOSSerial,
-                    systemDetails.Domain,
                     systemDetails.Hostname,
+                    systemDetails.BIOSSerial,
+                    systemDetails.ProductId,
                     Model = systemDetails.Make + " -- " + systemDetails.Model,
+                    systemDetails.ProcessorFamily,
                     systemDetails.OSName,
                     systemDetails.OSVersion,
-                    systemDetails.ProcessorFamily,
                     MemorySlots = $"{availableSlots}/{totalSlots}", // Add memory slots info
                     PhysicalMemory = systemDetails.PhysicalMemory + " GB",
-                    SystemId = device.u.SystemID
+                    systemDetails.OUName,
+                    Warranty_STARTDATE = systemDetails.StartDate?.ToString("dd-MMM-yyyy"),
+                    Warranty_EndDATE = systemDetails.EndDate?.ToString("dd-MMM-yyyy"),
+                    SystemId = device.u.SystemID,
+                    systemDetails.Domain
+
                 } : null
             };
 
@@ -848,6 +926,153 @@ namespace SystemMonitorAPI.Controllers
 
             return Ok(devices);
         }
+
+        // 🔋 Get battery details
+        [HttpGet("{hostname}/battery")]
+        public async Task<IActionResult> GetBatteryDetails(string hostname)
+        {
+            try
+            {
+                var batteryInfo = await _context.BatteryInfo
+                    .Where(b => b.Hostname == hostname)
+                    .Select(b => new
+                    {
+                        b.Name,
+                        b.EstimatedChargeRemaining,
+                        b.BatteryStatus,
+                        b.DesignCapacity,
+                        b.FullChargedCapacity
+                    })
+                    .ToListAsync();
+
+                return Ok(batteryInfo);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    error = ex.Message,
+                    inner = ex.InnerException?.Message
+                });
+            }
+        }
+
+        [HttpGet("{hostname}/systemEvent")]
+        public async Task<IActionResult> GetSystemEvents(
+    string hostname,
+    DateTime? from,
+    DateTime? to)
+        {
+            var query = _context.SystemEvents
+                .Where(e => e.Hostname == hostname);
+
+            if (from.HasValue)
+                query = query.Where(e => e.EventTime >= from.Value);
+
+            if (to.HasValue)
+                query = query.Where(e => e.EventTime <= to.Value);
+
+            var result = await query
+                .OrderByDescending(e => e.EventTime)
+                .Take(500)
+                .ToListAsync();
+
+            return Ok(result);
+        }
+
+
+
+        [HttpDelete("{hostname}")]
+        public async Task<IActionResult> DeleteDevice(string hostname)
+        {
+            var device = await _context.Devices
+                .FirstOrDefaultAsync(d => d.Hostname == hostname);
+
+            if (device == null)
+                return NotFound(new { message = "Device not found" });
+
+            // 1️⃣ Get SYSTEMID first
+            var system = await _context.Systems
+                .FirstOrDefaultAsync(x => x.Hostname == hostname);
+
+            if (system != null)
+            {
+                // 🔴 VERY IMPORTANT: Delete UpdateLog FIRST
+                _context.SystemUpdates.RemoveRange(
+                    _context.SystemUpdates.Where(x => x.SystemID == system.SystemID)
+                );
+            }
+
+            var systemIds = await _context.Systems
+    .Where(s => s.Hostname == hostname)
+    .Select(s => s.SystemID)
+    .ToListAsync();
+
+            // 2️⃣ Delete UpdateLogs linked to those SYSTEMIDs
+            var updateLogs = await _context.UpdateLogs
+                .Where(u => systemIds.Contains(u.SystemID))
+                .ToListAsync();
+
+            _context.UpdateLogs.RemoveRange(updateLogs);
+
+            _context.BatteryInfo.RemoveRange(
+                _context.BatteryInfo.Where(x => x.Hostname == hostname));
+
+            // 2️⃣ Other dependent tables
+            _context.BitLockerKey.RemoveRange(
+                _context.BitLockerKey.Where(x => x.Hostname == hostname));
+
+            _context.SoftwareDetails.RemoveRange(
+                _context.SoftwareDetails.Where(x => x.Hostname == hostname));
+
+            _context.DiskDetails.RemoveRange(
+                _context.DiskDetails.Where(x => x.Hostname == hostname));
+
+            _context.DiskInfo.RemoveRange(
+                _context.DiskInfo.Where(x => x.Hostname == hostname));
+
+            _context.NetworkDetail.RemoveRange(
+                _context.NetworkDetail.Where(x => x.Hostname == hostname));
+
+            _context.LocalUserDetail.RemoveRange(
+                _context.LocalUserDetail.Where(x => x.Hostname == hostname));
+
+            _context.MonitorDetail.RemoveRange(
+                _context.MonitorDetail.Where(x => x.Hostname == hostname));
+
+            _context.antivirusInfos.RemoveRange(
+                _context.antivirusInfos.Where(x => x.Hostname == hostname));
+
+            _context.PhysicalMemoryInfo.RemoveRange(
+                _context.PhysicalMemoryInfo.Where(x => x.Hostname == hostname));
+
+            _context.SystemDetails.RemoveRange(
+                _context.SystemDetails.Where(x => x.Hostname == hostname));
+
+            // 3️⃣ Now safe to delete SYSTEMINFO
+            if (system != null)
+            {
+                _context.Systems.Remove(system);
+            }
+
+            // 4️⃣ Finally delete DEVICE
+            _context.Devices.Remove(device);
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+
+            }
+
+            // Notify clients
+            await _hubContext.Clients.All.SendAsync("DeviceDeleted", hostname);
+
+            return Ok(new { message = "Device deleted successfully" });
+        }
+
+
 
     }
 }

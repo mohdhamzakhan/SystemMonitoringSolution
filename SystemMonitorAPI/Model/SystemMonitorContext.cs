@@ -22,6 +22,9 @@ namespace SystemMonitorAPI.Model
         public DbSet<MonitorDetail> MonitorDetail { get; set; }
         public DbSet<BitLockerKey> BitLockerKey { get; set; }
 
+        public DbSet<BatteryInfo> BatteryInfo { get; set; }
+        public DbSet<SystemEventInfo> SystemEvents { get; set; }
+
         #region Installation
         public DbSet<SystemInfo> Systems { get; set; }
         public DbSet<UpdateInfo> Updates { get; set; }
@@ -88,6 +91,19 @@ namespace SystemMonitorAPI.Model
                 .HasMany(d => d.antivirusInfos)
                 .WithOne()
                 .HasForeignKey(sd => sd.Hostname);
+
+            modelBuilder.Entity<BatteryInfo>(entity =>
+            {
+                entity.HasKey(e => e.ID)
+                    .HasName("PK_SMM_BATTERYINFO");
+
+                entity.HasOne(e => e.Device)
+                    .WithMany(d => d.BatteryInfos)
+                    .HasForeignKey(e => e.Hostname)
+                    .HasConstraintName("FK_SMM_BATTERYINFO_SMM_DEVICE_HOSTNAME")
+                    .OnDelete(DeleteBehavior.Restrict); // NO ACTION
+            });
+
 
 
             #region Installation

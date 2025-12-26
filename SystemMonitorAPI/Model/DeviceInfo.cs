@@ -33,8 +33,11 @@ namespace SystemMonitorAPI.Model
 
         public List<MonitorDetail> MonitorInfos { get; set; } = new List<MonitorDetail>();
         public List<BitLockerKey> BitLockerInfos { get; set; } = new List<BitLockerKey>();
+        public List<BatteryInfo> BatteryInfos { get; set; } = new List<BatteryInfo>();
 
     }
+
+
 
     public class DeviceDto
     {
@@ -54,6 +57,26 @@ namespace SystemMonitorAPI.Model
         public List<MonitorDetaildto> MonitorDetails { get; set; } = new List<MonitorDetaildto>();
         public List<BitLockerKeydto> bitLockerKeys { get; set; } = new List<BitLockerKeydto>();
 
+        public List<BatteryInfodto> BatteryInfos { get; set; } = new List<BatteryInfodto>();
+
+    }
+
+    public class SystemEventInfodto
+    {
+        public string Hostname { get; set; }
+        public string EventType { get; set; } // Login, Logout, Lock, Unlock, Restart, Shutdown
+        public DateTime EventTime { get; set; }
+        public string Username { get; set; }
+    }
+
+    public class BatteryInfodto
+    {
+        public string DeviceName { get; set; }
+        public string Manufacturer { get; set; }
+        public int DesignCapacity { get; set; }
+        public int FullChargeCapacity { get; set; }
+        public int CycleCount { get; set; }
+        public string Status { get; set; }
     }
 
     public class NetworkDetaildto

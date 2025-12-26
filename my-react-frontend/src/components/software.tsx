@@ -1,16 +1,17 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
   Search,
+  ChevronRight,
   AlertCircle,
   Loader,
+  Package
 } from "lucide-react";
 import Navbar from "./Navbar";
 import useAuth from "./useAuth";
 import { APP_CONSTANTS } from "../store";
 
-// Define types for the data structure
+/* ================= TYPES ================= */
+
 interface SoftwareDetails {
   softwareName: string;
   version: string;
@@ -32,238 +33,340 @@ interface FlattenedSoftware {
 }
 
 interface GroupedSoftware {
+  key: string;
   softwareName: string;
   version: string;
   publisher: string;
   installations: { hostname: string; username: string }[];
 }
 
-const SoftwareDashboard = () => {
-  useAuth(); // Ensures the user is authenticated before loading the page
-  const [softwareData, setSoftwareData] = useState<FlattenedSoftware[]>([]);
-  const [searchTerm, setSearchTerm] = useState<string>("");
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isCollapsed, setIsCollapsed] = useState<Record<string, boolean>>({});
+/* ================= COMPONENT ================= */
 
-  // Fetch software data
+const SoftwareDashboard = () => {
+  useAuth();
+
+  const [softwareData, setSoftwareData] = useState<FlattenedSoftware[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // 👉 Ref for right panel scroll control
+  const rightPanelRef = useRef<HTMLDivElement | null>(null);
+
+  /* ================= FETCH ================= */
+
   useEffect(() => {
     const fetchData = async () => {
       try {
-        setIsLoading(true);
-        setError(null);
-
-        const response = await fetch(
-          APP_CONSTANTS.API_BASE_URL+"/api/devices/software"
+        setLoading(true);
+        const res = await fetch(
+          `${APP_CONSTANTS.API_BASE_URL}/api/devices/software`
         );
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
 
-        const data = await response.json();
-        if (data && Array.isArray(data.$values)) {
-          const flattenedData: FlattenedSoftware[] = data.$values.flatMap(
-            (device: Device) =>
-              device.softwareDetails.$values.map(
-                (software: SoftwareDetails) => ({
-                  hostname: device.hostname,
-                  username: device.username,
-                  softwareName: software.softwareName,
-                  version: software.version,
-                  publisher: software.publisher,
-                })
-              )
-          );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-          setSoftwareData(flattenedData);
+        const data = await res.json();
 
-          // Initialize collapse state
-          const collapsedState = flattenedData.reduce(
-            (acc: Record<string, boolean>, software) => ({
-              ...acc,
-              [software.softwareName]: true, // true means collapsed
-            }),
-            {}
-          );
-          setIsCollapsed(collapsedState);
-        } else {
-          throw new Error("Invalid data format received");
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "An error occurred");
+        const flattened: FlattenedSoftware[] = data.$values.flatMap(
+          (device: Device) =>
+            device.softwareDetails.$values.map(
+              (s: SoftwareDetails) => ({
+                hostname: device.hostname,
+                username: device.username,
+                softwareName: s.softwareName,
+                version: s.version,
+                publisher: s.publisher
+              })
+            )
+        );
+
+        setSoftwareData(flattened);
+      } catch (e: any) {
+        setError(e.message || "Failed to load software data");
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
     };
 
     fetchData();
   }, []);
 
-  const toggleCollapse = (softwareName: string) => {
-    setIsCollapsed((prev) => ({
-      ...prev,
-      [softwareName]: !prev[softwareName],
-    }));
-  };
+  /* ================= GROUPING ================= */
 
-  // Group and filter software data
-  // Group and filter software data
-const groupedSoftwareData: Record<string, GroupedSoftware> =
-  softwareData.reduce((acc: Record<string, GroupedSoftware>, software) => {
-    if (
-      searchTerm &&
-      !software.softwareName.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      !software.hostname.toLowerCase().includes(searchTerm.toLowerCase())
-    ) {
-      return acc;
+  const groupedSoftware = useMemo(() => {
+    const map = new Map<string, GroupedSoftware>();
+
+    softwareData.forEach((s) => {
+      if (
+        searchTerm &&
+        !s.softwareName.toLowerCase().includes(searchTerm.toLowerCase()) &&
+        !s.hostname.toLowerCase().includes(searchTerm.toLowerCase())
+      ) {
+        return;
+      }
+
+      const key = `${s.softwareName}__${s.version}__${s.publisher}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          softwareName: s.softwareName,
+          version: s.version,
+          publisher: s.publisher,
+          installations: []
+        });
+      }
+
+      map.get(key)!.installations.push({
+        hostname: s.hostname,
+        username: s.username
+      });
+    });
+
+    return Array.from(map.values()).sort(
+      (a, b) => b.installations.length - a.installations.length
+    );
+  }, [softwareData, searchTerm]);
+
+  const selectedSoftware = groupedSoftware.find(
+    (s) => s.key === selectedKey
+  );
+
+  const groupedInstallations = useMemo(() => {
+  if (!selectedSoftware) return [];
+
+  const map = new Map<string, {
+    hostname: string;
+    username: string;
+    count: number;
+  }>();
+
+  selectedSoftware.installations.forEach((inst) => {
+    const key = `${inst.hostname}__${inst.username}`;
+
+    if (!map.has(key)) {
+      map.set(key, {
+        hostname: inst.hostname,
+        username: inst.username,
+        count: 0
+      });
     }
 
-    const { softwareName, version, hostname, username, publisher } = software;
+    map.get(key)!.count += 1;
+  });
 
-    // ✅ Use combined key for accurate grouping
-    const key = `${softwareName}__${version}__${publisher}`;
+  return Array.from(map.values());
+}, [selectedSoftware]);
 
-    if (!acc[key]) {
-      acc[key] = {
-        softwareName,
-        version,
-        publisher,
-        installations: [],
-      };
+
+  /* ================= AUTO SCROLL RIGHT PANEL ================= */
+
+  useEffect(() => {
+    if (rightPanelRef.current) {
+      rightPanelRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
+  }, [selectedKey]);
 
-    acc[key].installations.push({ hostname, username });
+  /* ================= LOADING ================= */
 
-    return acc;
-  }, {});
-
-
-  if (isLoading) {
+  if (loading) {
     return (
       <>
         <Navbar />
-        <div className="min-h-screen bg-gray-50 p-8">
-          <div className="max-w-6xl mx-auto">
-            <div className="flex items-center justify-center h-64">
-              <Loader className="w-8 h-8 animate-spin text-gray-500" />
-              <span className="ml-2 text-gray-600">
-                Loading software inventory...
-              </span>
-            </div>
+        <div className="h-screen flex items-center justify-center text-gray-600">
+          <Loader className="h-6 w-6 animate-spin mr-2" />
+          Loading software inventory…
+        </div>
+      </>
+    );
+  }
+
+  /* ================= ERROR ================= */
+
+  if (error) {
+    return (
+      <>
+        <Navbar />
+        <div className="p-8 max-w-6xl mx-auto">
+          <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+            <AlertCircle className="h-4 w-4" />
+            {error}
           </div>
         </div>
       </>
     );
   }
 
+  /* ================= UI ================= */
+
   return (
     <>
       <Navbar />
       <div className="min-h-screen bg-gray-50 p-8">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
-          <div className="mb-8">
+          <div>
             <h1 className="text-3xl font-bold text-gray-900">
               Software Inventory
             </h1>
-            <p className="mt-2 text-gray-600">
-              Overview of all installed software across your infrastructure
+            <p className="text-gray-600 mt-1">
+              Installed software across all managed devices
             </p>
           </div>
 
-          {/* Search and Stats */}
-          <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div className="relative w-full sm:w-96">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <input
-                type="text"
-                placeholder="Search software or hostname..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 w-full border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="text-sm text-gray-600">
-              Total Software: {Object.keys(groupedSoftwareData).length}
-            </div>
+          {/* Search */}
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search software or hostname"
+              className="pl-9 pr-3 py-2 w-full border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"
+            />
           </div>
 
-          {/* Error Alert */}
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center text-red-700">
-              <AlertCircle className="h-4 w-4 mr-2" />
-              <p>Error loading software data: {error}</p>
-            </div>
-          )}
+          {/* ================= MASTER–DETAIL ================= */}
 
-          {/* Software List */}
-          {Object.keys(groupedSoftwareData).length > 0 ? (
-            <div className="space-y-4">
-              {Object.values(groupedSoftwareData).map((software, index) => (
-                <div
-                  key={index}
-                  className="bg-white rounded-lg shadow-sm border border-gray-200 hover:border-gray-300 transition-colors overflow-hidden"
-                >
-                  <div className="flex justify-between items-center p-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* LEFT PANEL */}
+            <div className="space-y-3 h-[calc(100vh-260px)] overflow-y-auto">
+              {groupedSoftware.map((s) => {
+                const active = s.key === selectedKey;
+
+                return (
+                  <button
+                    key={s.key}
+                    onClick={() => setSelectedKey(s.key)}
+                    className={`
+                      w-full text-left rounded-xl p-4 border
+                      transition-all
+                      ${
+                        active
+                          ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg"
+                          : "bg-white hover:bg-gray-50 border-gray-200"
+                      }
+                    `}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold text-sm">
+                          {s.softwareName}
+                        </h3>
+                        <p
+                          className={`mt-1 text-xs ${
+                            active ? "text-blue-100" : "text-gray-500"
+                          }`}
+                        >
+                          {s.version || "—"} • {s.publisher || "Unknown"}
+                        </p>
+                      </div>
+
+                      <ChevronRight
+                        className={`h-4 w-4 ${
+                          active ? "text-white" : "text-gray-400"
+                        }`}
+                      />
+                    </div>
+
+                    <div className="mt-3">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                          active
+                            ? "bg-white/20"
+                            : "bg-blue-50 text-blue-700"
+                        }`}
+                      >
+                        {s.installations.length} installs
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* RIGHT PANEL */}
+            <div
+              ref={rightPanelRef}
+              className="lg:col-span-2 h-[calc(100vh-260px)] overflow-y-auto"
+            >
+              {selectedSoftware ? (
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+                  {/* Header */}
+                  <div className="px-6 py-4 border-b flex items-center justify-between">
                     <div>
-                      <h3 className="text-lg text-left font-semibold text-gray-900">
-                        {software.softwareName}
-                      </h3>
-                      <p className="text-sm text-gray-500">
-                        Version: {software.version} | Publisher:{" "}
-                        {software.publisher} | Installations:{" "}
-                        {software.installations.length}
+                      <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-3">
+                        {selectedSoftware.softwareName}
+
+                        {/* ✅ Show count ONLY if multiple */}
+                        {selectedSoftware.installations.length > 1 && (
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                            {selectedSoftware.installations.length}
+                          </span>
+                        )}
+                      </h2>
+
+                      <p className="text-sm text-gray-500 mt-1">
+                        {selectedSoftware.installations.length === 1
+                          ? "Installed on 1 device"
+                          : "Installed on multiple devices"}
                       </p>
                     </div>
-                    <button
-                              onClick={() => toggleCollapse(software.softwareName)}
-                      className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                          >
-                              {isCollapsed[software.softwareName] ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronUp className="h-4 w-4" />
-                      )}
-                    </button>
                   </div>
 
-                  {/* 🔥 Add this section to show/hide installations */}
-                  {!isCollapsed[software.softwareName] && (
-                    <div className="px-4 pb-4 overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Hostname
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Username
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {software.installations.map((install, idx) => (
-                            <tr key={idx} className="hover:bg-gray-50">
-                              <td className="px-6 text-left py-4 whitespace-nowrap text-sm text-gray-900">
-                                <a href={`/device/${install.hostname}`}>
-                                  {install.hostname}
-                                </a>
-                              </td>
-                              <td className="px-6 text-left py-4 whitespace-nowrap text-sm text-gray-900">
-                                {install.username}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                  {/* Table */}
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+  <thead className="bg-gray-50 border-b">
+    <tr>
+      <th className="px-6 py-3 text-center font-semibold text-gray-600">
+        Hostname
+      </th>
+      <th className="px-6 py-3 text-center font-semibold text-gray-600">
+        Username
+      </th>
+      <th className="px-6 py-3 text-center font-semibold text-gray-600">
+        Count
+      </th>
+    </tr>
+  </thead>
+
+  <tbody className="divide-y">
+    {groupedInstallations.map((row, idx) => (
+      <tr key={idx} className="hover:bg-blue-50/40">
+        <td className="px-6 py-3 text-center">
+          <a
+            href={`/device/${row.hostname}`}
+            className="text-blue-600 font-medium hover:underline"
+          >
+            {row.hostname}
+          </a>
+        </td>
+
+        <td className="px-6 py-3 text-center">
+          {row.username}
+        </td>
+
+        <td className="px-6 py-3 text-center">
+          <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">
+            {row.count}
+          </span>
+        </td>
+      </tr>
+    ))}
+  </tbody>
+</table>
+
+                  </div>
                 </div>
-              ))}
+              ) : (
+                <div className="h-full flex items-center justify-center text-gray-400 border border-dashed rounded-xl p-12">
+                  <Package className="h-6 w-6 mr-2" />
+                  Select a software to view details
+                </div>
+              )}
             </div>
-          ) : (
-            <p>No software data available</p>
-          )}
+          </div>
         </div>
       </div>
     </>
