@@ -28,5 +28,5 @@ public class SystemEventInfo
     public string Source { get; set; } // Session / System / App
 
     [Column("CREATED_AT")]
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
 }

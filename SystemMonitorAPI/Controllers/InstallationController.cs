@@ -22,105 +22,7 @@ namespace SystemMonitorAPI.Controllers
             _credentialService = credentialService;
         }
 
-        #region Useless
-        //[ApiController]
-        //[Route("api/[controller]")]
-        //public class InstallationController : ControllerBase
-        //{
-        //    private readonly IUpdateService _updateService;
-        //    private readonly ILogger<InstallationController> _logger;
 
-        //    public InstallationController(IUpdateService updateService, ILogger<InstallationController> logger)
-        //    {
-        //        _updateService = updateService;
-        //        _logger = logger;
-        //    }
-
-        //    [HttpPost("update-info")]
-        //    public async Task<ActionResult<UpdateInfo>> SubmitUpdateInfo([FromBody] UpdateInfo updateInfo)
-        //    {
-        //        try
-        //        {
-        //            if (!ModelState.IsValid)
-        //            {
-        //                return BadRequest(ModelState);
-        //            }
-
-        //            var result = await _updateService.SubmitUpdateInfoAsync(updateInfo);
-        //            return Ok(result);
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            _logger.LogError(ex, "Error in SubmitUpdateInfo");
-        //            return StatusCode(500, new { message = "An error occurred while processing your request" });
-        //        }
-        //    }
-
-        //    [HttpGet("active-hosts")]
-        //    public async Task<ActionResult<List<SystemInfo>>> GetActiveHosts()
-        //    {
-        //        try
-        //        {
-        //            var hosts = await _updateService.GetActiveHostsAsync();
-        //            return Ok(hosts);
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            _logger.LogError(ex, "Error in GetActiveHosts");
-        //            return StatusCode(500, new { message = "An error occurred while retrieving active hosts" });
-        //        }
-        //    }
-
-        //    [HttpPost("assign-update")]
-        //    public async Task<IActionResult> AssignUpdate([FromBody] UpdateAssignmentRequest assignment)
-        //    {
-        //        try
-        //        {
-        //            if (!ModelState.IsValid)
-        //            {
-        //                return BadRequest(ModelState);
-        //            }
-
-        //            var result = await _updateService.AssignUpdateAsync(assignment);
-        //            return Ok(new { message = "Update assigned successfully" });
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            _logger.LogError(ex, "Error in AssignUpdate");
-        //            return StatusCode(500, new { message = "An error occurred while assigning the update" });
-        //        }
-        //    }
-
-        //    [HttpGet("active-updates")]
-        //    public async Task<ActionResult<List<UpdateInfo>>> GetActiveUpdates()
-        //    {
-        //        try
-        //        {
-        //            var updates = await _updateService.GetActiveUpdatesAsync();
-        //            return Ok(updates);
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            _logger.LogError(ex, "Error in GetActiveUpdates");
-        //            return StatusCode(500, new { message = "An error occurred while retrieving active updates" });
-        //        }
-        //    }
-
-        //    [HttpGet("assigned-systems")]
-        //    public async Task<ActionResult<List<SystemUpdate>>> GetAssignedSystems([FromQuery] int updateId)
-        //    {
-        //        try
-        //        {
-        //            var systems = await _updateService.GetAssignedSystemsAsync(updateId);
-        //            return Ok(systems);
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            _logger.LogError(ex, "Error in GetAssignedSystems");
-        //            return StatusCode(500, new { message = "An error occurred while retrieving assigned systems" });
-        //        }
-        //    }
-        #endregion
         #region Working
         /// <summary>
         /// Retrieves updates required for a specific hostname.
@@ -241,7 +143,7 @@ namespace SystemMonitorAPI.Controllers
             {
                 // Fetch the assigned systems with their details
                 var assignedHostnames = await _context.SystemUpdates
-                    .Join(_context.Devices,u=>u.SystemInfo.Hostname,p=>p.Hostname, (u, p) => new { u, p })
+                    .Join(_context.Devices, u => u.SystemInfo.Hostname, p => p.Hostname, (u, p) => new { u, p })
                     .Where(su => su.u.UpdateID == updateID)
                     .Select(su => new
                     {
@@ -273,7 +175,7 @@ namespace SystemMonitorAPI.Controllers
         public async Task<IActionResult> GetActiveHosts()
         {
             var activeHosts = await _context.Systems
-                .Join(_context.SystemDetails, u=>u.Hostname, s=>s.Hostname, (u,s) => new {u,s})
+                .Join(_context.SystemDetails, u => u.Hostname, s => s.Hostname, (u, s) => new { u, s })
                 .Where(s => s.u.IsActive)
                 .Select(s => new
                 {
@@ -291,7 +193,6 @@ namespace SystemMonitorAPI.Controllers
         public async Task<IActionResult> GetActiveUpdates()
         {
             var activeUpdates = await _context.Updates
-                .Where(u => u.IsActive)
                 .Select(u => new
                 {
                     u.UpdateID,
@@ -299,12 +200,15 @@ namespace SystemMonitorAPI.Controllers
                     u.FileName,
                     u.Parameters,
                     u.CreatedDate,
-                    u.UpdateName
+                    u.UpdateName,
+                    u.IsLocal,
+                    u.IsActive
                 })
                 .ToListAsync();
 
             return Ok(activeUpdates);
         }
+
 
         /// <summary>
         /// Updates the installation status of a specific update for a system.
@@ -426,18 +330,28 @@ namespace SystemMonitorAPI.Controllers
                 if (updateInfo == null)
                     return BadRequest("Invalid data.");
 
+                updateInfo.SystemUpdates = null; // Prevent cycle
                 _context.Updates.Add(updateInfo);
                 await _context.SaveChangesAsync();
 
-                return Ok(updateInfo);
+                return Ok(new
+                {
+                    updateInfo.UpdateID,
+                    updateInfo.UpdateName,
+                    updateInfo.FilePath,
+                    updateInfo.FileName,
+                    updateInfo.Parameters,
+                    updateInfo.IsActive,
+                    updateInfo.IsLocal,
+                    updateInfo.CreatedDate
+                });
             }
-            catch
+            catch (Exception ex)
             {
-
-                return BadRequest();
+                return BadRequest(ex.Message);
             }
         }
-        [HttpDelete("update-info/{id}")]
+        [HttpDelete("update-delete/{id}")]
         public async Task<IActionResult> DeleteUpdateInfo(int id)
         {
             // Load the UpdateInfo with related SystemUpdates + Logs
@@ -473,7 +387,86 @@ namespace SystemMonitorAPI.Controllers
             return Ok(new { message = "Update, related system updates, and logs deleted successfully." });
         }
 
+        // PUT endpoint for full update (already mentioned before)
+        [HttpPut("update-info/{id}")]
+        public async Task<IActionResult> UpdateUpdateInfo(int id, [FromBody] UpdateInfo updateInfo)
+        {
+            try
+            {
+                var existing = await _context.Updates.FindAsync(id);
+                if (existing == null)
+                    return NotFound("Update not found.");
 
+                existing.UpdateName = updateInfo.UpdateName;
+                existing.FilePath = updateInfo.FilePath;
+                existing.FileName = updateInfo.FileName;
+                existing.Parameters = updateInfo.Parameters;
+                existing.IsLocal = updateInfo.IsLocal;
+                existing.IsActive = updateInfo.IsActive;
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    existing.UpdateID,
+                    existing.UpdateName,
+                    existing.FilePath,
+                    existing.FileName,
+                    existing.Parameters,
+                    existing.IsActive,
+                    existing.IsLocal,
+                    existing.CreatedDate
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        // PATCH endpoint for toggling active status
+        [HttpPatch("update-info/{id}/toggle-active")]
+        public async Task<IActionResult> ToggleUpdateActive(int id, [FromBody] ToggleActiveRequest request)
+        {
+            try
+            {
+                var update = await _context.Updates.FindAsync(id);
+                if (update == null)
+                    return NotFound("Update not found.");
+
+                update.IsActive = request.IsActive;
+
+                // Mark the entity as modified
+                _context.Entry(update).State = EntityState.Modified;
+
+                // Or use this approach
+                _context.Updates.Update(update);
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    update.UpdateID,
+                    update.UpdateName,
+                    update.FilePath,
+                    update.FileName,
+                    update.Parameters,
+                    update.IsActive,
+                    update.IsLocal,
+                    update.CreatedDate
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        // DTO for toggle request
+        public class ToggleActiveRequest
+        {
+            public bool IsActive { get; set; }
+        }
         #endregion
 
         #region uninstall
@@ -501,7 +494,7 @@ namespace SystemMonitorAPI.Controllers
                 return BadRequest("Hostname is required.");
 
             var uninstallRequest = await _context.uninstallInfos
-                .Join(_context.SoftwareDetails, u=>u.applicationId, s=>s.SoftwareDetailsID, (u,s) => new {u,s})
+                .Join(_context.SoftwareDetails, u => u.applicationId, s => s.SoftwareDetailsID, (u, s) => new { u, s })
                .Where(su => su.u.hostname == hostname && su.u.Active == 1)
                // "Pending" indicates updates needed
                .Select(su => new
@@ -533,6 +526,34 @@ namespace SystemMonitorAPI.Controllers
 
             return Ok(result);
         }
+
+        [HttpDelete("system-update/{systemID}/{updateID}")]
+        public async Task<IActionResult> DeleteSystemUpdate(int systemID, int updateID)
+        {
+            try
+            {
+                var systemUpdate = await _context.SystemUpdates
+                    .FirstOrDefaultAsync(su =>
+                        su.SystemID == systemID &&
+                        su.UpdateID == updateID);
+
+                if (systemUpdate == null)
+                    return NotFound(new { message = "System update not found for given parameters." });
+
+                _context.SystemUpdates.Remove(systemUpdate);
+                await _context.SaveChangesAsync();
+
+                return Ok(new { message = "Task deleted successfully." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = $"An error occurred while deleting the task: {ex.Message}"
+                });
+            }
+        }
+
         #endregion
     }
 }

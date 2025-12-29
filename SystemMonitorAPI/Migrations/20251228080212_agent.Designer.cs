@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Oracle.EntityFrameworkCore.Metadata;
 using SystemMonitorAPI.Model;
@@ -11,9 +12,11 @@ using SystemMonitorAPI.Model;
 namespace SystemMonitorAPI.Migrations
 {
     [DbContext(typeof(SystemMonitorContext))]
-    partial class SystemMonitorContextModelSnapshot : ModelSnapshot
+    [Migration("20251228080212_agent")]
+    partial class agent
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

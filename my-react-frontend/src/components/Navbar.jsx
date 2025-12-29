@@ -6,7 +6,7 @@ const Navbar = () => {
   return (
     <nav className="bg-gray-800 text-white p-4">
       <div className="max-w-7xl mx-auto flex justify-between items-center">
-        <a href="#home" className="text-2xl font-bold">
+        <a href="Mainpage" className="text-2xl font-bold">
           MEAI System Monitor
         </a>
         <div className="relative">
@@ -25,6 +25,11 @@ const Navbar = () => {
             <li>
               <a href="/systemReport" className="hover:text-gray-300">
                 Report
+              </a>
+            </li>
+             <li>
+               <a href="/warranty-management" className="hover:text-gray-300">
+              Warranty Management
               </a>
             </li>
             <li>

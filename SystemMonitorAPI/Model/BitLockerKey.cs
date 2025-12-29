@@ -28,6 +28,8 @@ namespace SystemMonitorAPI.Model
         [Column("CREATEDAT")]
 
         public DateTime CreatedAt { get; set; } = DateTime.Now;
+        [Column("ARCHIVED")]
+        public bool Archived { get; set; } = false;
     }
 
 

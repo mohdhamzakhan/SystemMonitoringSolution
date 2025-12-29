@@ -17,6 +17,8 @@ namespace SystemMonitorAPI.Model
         public DateTime LastUpdated { get; set; }
         [Column("DEPARTMENT")]
         public string? Department { get; set; }
+        [Column("AGENTVERSION")]
+        public string? AgentVersion { get; set; }
 
         public virtual ICollection<SystemDetail> SystemDetails { get; set; }
         public virtual ICollection<SoftwareDetail> SoftwareDetails { get; set; }

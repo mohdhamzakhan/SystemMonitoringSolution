@@ -1,4 +1,5 @@
-﻿using Microsoft.Win32;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System.Diagnostics;
@@ -38,14 +39,43 @@ namespace SystemMonitorWorker
             _logger = logger;
             _httpClient = httpClient;
         }
+        private void HideLocalFolder()
+        {
+            try
+            {
+                var folderPath = @"C:\SystemMonitor";
+                if (Directory.Exists(folderPath))
+                {
+                    var dirInfo = new DirectoryInfo(folderPath);
+                    dirInfo.Attributes |= FileAttributes.Hidden | FileAttributes.System;
+                    _logger.LogInformation("Local folder hidden");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not hide local folder");
+            }
+        }
 
 
         public override async Task StartAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("Service starting");
 
-            SaveEvent("Startup");           // Startup detected
-            await SyncEventsToApiAsync();   // Sync pending events
+            SaveEvent("Startup"); // Startup detected
+            await SyncEventsToApiAsync(); // Sync pending events
+
+            // NEW: ensure the 15‑min task exists
+            try
+            {
+                await RegisterTaskFor15MinCheck();
+                HideLocalFolder();
+                _logger.LogInformation("15‑minute CheckAndRun task registered/updated.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to register 15‑minute CheckAndRun task.");
+            }
 
             SystemEvents.SessionSwitch += OnSessionSwitch;
             SystemEvents.SessionEnding += OnSessionEnding;
@@ -53,11 +83,14 @@ namespace SystemMonitorWorker
             NetworkChange.NetworkAvailabilityChanged += async (_, e) =>
             {
                 if (e.IsAvailable)
+                {
                     await SyncEventsToApiAsync();
+                }
             };
 
             await base.StartAsync(cancellationToken);
         }
+
 
         private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
         {
@@ -87,24 +120,126 @@ namespace SystemMonitorWorker
         {
             // Define the PowerShell script file path in C#
             string scriptPath = Path.Combine(workingDirectory, "CheckAndRun.vbs");
-            string command = @"
+            //            string command = @"
+            //On Error Resume Next
+            //Set objWMIService = GetObject(""winmgmts:\\.\root\cimv2"")
+            //Set colProcesses = objWMIService.ExecQuery(""Select * from Win32_Process Where Name='SystemMonitorWorker.exe'"")
+
+            //If colProcesses.Count = 0 Then
+            //    Set objShell = CreateObject(""WScript.Shell"")
+            //    objShell.Run ""\\meaisdfs\PUBLIC_SANAND\04IT_Sanand\02_Open_to_all\SystemMonitorWorker\SystemMonitorWorker.exe"", 0, False
+            //End If
+            //If Err.Number <> 0 Then
+            //    Err.Clear
+            //End If
+
+            //Set objWMIService = Nothing
+            //Set colProcesses = Nothing
+            //Set objShell = Nothing
+
+            //";
+            string networkPath = @"\\meaisdfs\PUBLIC_SANAND\04IT_Sanand\02_Open_to_all\SystemMonitorWorker\SystemMonitorWorker.exe";
+            string networkFolder = @"\\meaisdfs\PUBLIC_SANAND\04IT_Sanand\02_Open_to_all\SystemMonitorWorker";
+            string localFolder = @"C:\SystemMonitor";
+
+            string command = $@"
 On Error Resume Next
+
+Dim objWMIService, colProcesses, objShell
+Dim fso, localPathVBS, networkFolderVBS, localFolderVBS, logFile, exeName
+
+localFolderVBS   = ""C:\SystemMonitor""
+networkFolderVBS = ""\\meaisdfs\PUBLIC_SANAND\04IT_Sanand\02_Open_to_all\SystemMonitorWorker""
+logFile          = ""C:\SystemMonitor\debug.log""
+exeName          = ""SystemMonitorWorker.exe""
+
+Set fso = CreateObject(""Scripting.FileSystemObject"")
 Set objWMIService = GetObject(""winmgmts:\\.\root\cimv2"")
 Set colProcesses = objWMIService.ExecQuery(""Select * from Win32_Process Where Name='SystemMonitorWorker.exe'"")
 
+Dim ts: Set ts = fso.OpenTextFile(logFile, 8, True)
+ts.WriteLine ""=== FULL FOLDER COPY: "" & Now()
+
 If colProcesses.Count = 0 Then
-    Set objShell = CreateObject(""WScript.Shell"")
-    objShell.Run ""\\meaisdfs\PUBLIC_SANAND\04IT_Sanand\02_Open_to_all\SystemMonitorWorker\SystemMonitorWorker.exe"", 0, False
-End If
-If Err.Number <> 0 Then
+    ts.WriteLine ""No process running""
+    
+    ' Ensure local folder exists
+    If Not fso.FolderExists(localFolderVBS) Then
+        fso.CreateFolder localFolderVBS
+        ts.WriteLine ""Created local folder""
+    End If
+    
+    ' DELETE old local folder contents first (for clean update)
+    On Error Resume Next
+    Dim localFiles: Set localFiles = fso.GetFolder(localFolderVBS).Files
+    For Each file In localFiles
+        fso.DeleteFile file.Path
+    Next
+    Dim localSubFolders: Set localSubFolders = fso.GetFolder(localFolderVBS).SubFolders
+    For Each folder In localSubFolders
+        fso.DeleteFolder folder.Path
+    Next
     Err.Clear
+    ts.WriteLine ""Cleared old local files""
+    
+    ' COPY ENTIRE NETWORK FOLDER
+    If fso.FolderExists(networkFolderVBS) Then
+        ts.WriteLine ""Network folder OK, copying entire folder...""
+        
+        ' Copy all files first
+        Dim netFiles: Set netFiles = fso.GetFolder(networkFolderVBS).Files
+        For Each netFile In netFiles
+            fso.CopyFile netFile.Path, localFolderVBS & ""\"" & netFile.Name, True
+        Next
+        
+        ' Copy all subfolders recursively
+        Dim netFolders: Set netFolders = fso.GetFolder(networkFolderVBS).SubFolders
+        For Each netFolder In netFolders
+            CopyFolder netFolder.Path, localFolderVBS & ""\"" & netFolder.Name
+        Next
+        
+        ts.WriteLine ""Folder copy COMPLETE - "" & netFiles.Count & "" files, "" & netFolders.Count & "" folders""
+    Else
+        ts.WriteLine ""Network folder MISSING""
+    End If
+
+    ' Run the EXE
+    localPathVBS = localFolderVBS & ""\"" & exeName
+    If fso.FileExists(localPathVBS) Then
+        ts.WriteLine ""Running: "" & localPathVBS
+        Set objShell = CreateObject(""WScript.Shell"")
+        objShell.Run """" & localPathVBS & """", 0, False
+    Else
+        ts.WriteLine ""EXE not found after copy!""
+    End If
+Else
+    ts.WriteLine ""Process already running""
 End If
 
-Set objWMIService = Nothing
-Set colProcesses = Nothing
-Set objShell = Nothing
+ts.WriteLine ""=== END ==="" & Now()
+Set ts = Nothing
 
+' Helper function for recursive folder copy
+Sub CopyFolder(source, destination)
+    On Error Resume Next
+    Dim fso: Set fso = CreateObject(""Scripting.FileSystemObject"")
+    If Not fso.FolderExists(destination) Then fso.CreateFolder destination
+    
+    Dim files: Set files = fso.GetFolder(source).Files
+    For Each file In files
+        fso.CopyFile file.Path, destination & ""\\\\"" & file.Name, True
+    Next
+    
+    Dim folders: Set folders = fso.GetFolder(source).SubFolders
+    For Each folder In folders
+        CopyFolder folder.Path, destination & ""\\\\"" & folder.Name
+    Next
+End Sub
 ";
+
+
+
+
             File.WriteAllText(scriptPath, command);
 
             var parameterDate = DateTime.ParseExact("03/07/2025", "MM/dd/yyyy", CultureInfo.InvariantCulture);
@@ -1148,7 +1283,8 @@ Start-ScheduledTask -TaskName $taskName
                 Model = GetSystemInfo("Model"),
                 Domain = GetSystemInfo("Domain"),
                 PhysicalMemory = Math.Round(Convert.ToDouble(GetSystemInfo("TotalPhysicalMemory")) / (1024 * 1024 * 1024), 0),
-                OUName = GetOUName(Environment.MachineName, true)
+                OUName = GetOUName(Environment.MachineName, true),
+                AgentVersion = typeof(Worker).Assembly.GetName().Version?.ToString()
             };
 
             // Now pass the fully initialized deviceInfo to GetInstalledSoftware
@@ -2011,6 +2147,7 @@ Start-ScheduledTask -TaskName $taskName
         public string Domain { get; set; }
         public string OUName { get; set; }
         public string BitlockerKey { get; set; }
+        public string AgentVersion { get; set; }
         public List<SoftwareInfo> InstalledSoftware { get; set; }
 
         public List<DiskDetails> DiskDetails { get; set; }

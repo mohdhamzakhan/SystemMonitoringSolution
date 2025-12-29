@@ -99,7 +99,7 @@ namespace SystemMonitorAPI.Model
         [Column("LOGMESSAGE")]
         public string? LogMessage { get; set; }
         [Column("LOGDATE")]
-        public DateTime LogDate { get; set; } = DateTime.UtcNow;
+        public DateTime LogDate { get; set; } = DateTime.Now;
 
         // Navigation properties
         public virtual SystemInfo SystemInfo { get; set; }

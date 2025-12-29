@@ -24,14 +24,7 @@ const Dropdown = () => {
               Update Info
             </a>
           </li>
-          <li>
-            <a
-              href="/updateDetails"
-              className="block px-4 py-2 hover:bg-gray-600"
-            >
-              Assign Update
-            </a>
-          </li>
+          
           <li>
             <a href="/updateMgmt" className="block px-4 py-2 hover:bg-gray-600">
               DashBoard

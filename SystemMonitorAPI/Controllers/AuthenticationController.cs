@@ -73,7 +73,7 @@ namespace SystemMonitorAPI.Controllers
                 _config["Jwt:Issuer"],
                 _config["Jwt:Audience"],
                 claims,
-                expires: DateTime.UtcNow.AddHours(2),
+                expires: DateTime.Now.AddHours(2),
                 signingCredentials: credentials
             );
 

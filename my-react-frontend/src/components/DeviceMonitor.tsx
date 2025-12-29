@@ -191,7 +191,8 @@ const DeviceMonitor = () => {
     const [fromDate, setFromDate] = useState("");
     const [toDate, setToDate] = useState("");
     const [logsLoading, setLogsLoading] = useState(false);
-
+    const [showArchived, setShowArchived] = useState(false);
+    const [workingTime, setWorkingTime] = useState<{[key: string]: number}>({});
 
 
 
@@ -278,6 +279,7 @@ useEffect(() => {
 
       const data = res.data?.$values ?? [];
       setLogs(data);
+      calculateWorkingTime(data);
 
       console.log("Logs fetched:", data);
     } catch (err) {
@@ -290,7 +292,110 @@ useEffect(() => {
   fetchLogs();
 }, [activeTab, fromDate, toDate, hostname]);
 
+//   const fetchLogs = async () => {
+//     setLogsLoading(true);
+//     try {
+//       const res = await axios.get(
+//         `${APP_CONSTANTS.API_BASE_URL}/api/devices/${hostname}/systemEvent`,
+//         {
+//           params: {
+//             from: fromDate || undefined,
+//             to: toDate || undefined,
+//           },
+//         }
+//       );
 
+//       const data = res.data?.$values ?? [];
+//       setLogs(data);
+
+//       console.log("Logs fetched:", data);
+//     } catch (err) {
+//       console.error("Failed to fetch logs", err);
+//     } finally {
+//       setLogsLoading(false);
+//     }
+//   };
+
+//   fetchLogs();
+// }, [activeTab, fromDate, toDate, hostname]);
+
+const calculateWorkingTime = (logs) => {
+  if (!logs || logs.length === 0) {
+    setWorkingTime({});
+    return;
+  }
+
+  // Group logs by date
+  const logsByDate = {};
+  
+  logs.forEach(log => {
+    const date = new Date(log.eventTime).toLocaleDateString();
+    if (!logsByDate[date]) {
+      logsByDate[date] = [];
+    }
+    logsByDate[date].push({
+      ...log,
+      time: new Date(log.eventTime)
+    });
+  });
+
+  // Calculate working time for each date
+  const workingTimeByDate = {};
+
+  Object.keys(logsByDate).forEach(date => {
+    const dayLogs = logsByDate[date].sort((a, b) => a.time - b.time);
+    let totalWorkingMs = 0;
+    let sessionStart = null;
+    let isLocked = false;
+
+    dayLogs.forEach((log, index) => {
+      const eventType = log.eventType?.toLowerCase() || '';
+
+      if (eventType.includes('startup') || eventType.includes('login') || eventType.includes('unlock')) {
+        if (!sessionStart && !isLocked) {
+          // Start a new session
+          sessionStart = log.time;
+        } else if (eventType.includes('unlock') && isLocked) {
+          // Resume session after unlock
+          isLocked = false;
+          sessionStart = log.time;
+        }
+      } else if (eventType.includes('lock')) {
+        if (sessionStart && !isLocked) {
+          // Pause session on lock
+          totalWorkingMs += log.time - sessionStart;
+          isLocked = true;
+          sessionStart = null;
+        }
+      } else if (eventType.includes('shutdown') || eventType.includes('logout')) {
+        if (sessionStart && !isLocked) {
+          // End session
+          totalWorkingMs += log.time - sessionStart;
+          sessionStart = null;
+        }
+        isLocked = false;
+      }
+
+      // If this is the last log and session is still active, count till last log time
+      if (index === dayLogs.length - 1 && sessionStart && !isLocked) {
+        totalWorkingMs += log.time - sessionStart;
+      }
+    });
+
+    workingTimeByDate[date] = totalWorkingMs;
+  });
+
+  setWorkingTime(workingTimeByDate);
+};
+
+const formatWorkingTime = (ms) => {
+  if (!ms || ms === 0) return '0h 0m';
+  
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+  
+  return `${hours}h ${minutes}m`;
+};
 
     const handleUninstall = (software: OtherDetails) => {
         if (!deviceData) return;
@@ -1403,16 +1508,36 @@ const fetchLogs = async () => {
                             <h2 className="text-xl font-semibold text-gray-900 mb-8 tracking-wide">
                                                 🔑 BitLocker Recovery Keys
                             </h2>
+                            <div className="flex items-center mb-6">
+    <input
+        type="checkbox"
+        id="showArchived"
+        checked={showArchived}
+        onChange={(e) => setShowArchived(e.target.checked)}
+        className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+    />
+    <label
+        htmlFor="showArchived"
+        className="ml-2 text-sm text-gray-700 select-none"
+    >
+        Show archived BitLocker keys
+    </label>
+</div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {deviceData?.otherDetails?.map((key, index) => (
-                                <div
-                                    key={index}
-                                    className="
-                                    bg-white border border-gray-200 rounded-lg
-                                    p-6 transition-shadow hover:shadow-sm
-                                    "
-                                >
+                                {deviceData?.otherDetails
+    ?.filter(key => showArchived || !key.archived)
+    .map((key, index) => (
+        <div
+            key={index}
+            className={`
+                border rounded-lg p-6 transition-shadow
+                ${key.archived
+                    ? "bg-gray-100 border-gray-300 opacity-75"
+                    : "bg-white border-gray-200 hover:shadow-sm"}
+            `}
+        >
+
                                     <div className="space-y-5 text-sm">
                                     {/* Identifier */}
                                     <div>
@@ -1520,7 +1645,34 @@ const fetchLogs = async () => {
                       🔄 Reset
                     </button>
                   </div>
-                  
+                  {/* Working Time Summary */}
+{Object.keys(workingTime).length > 0 && (
+  <div className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {Object.entries(workingTime).map(([date, time]) => (
+      <div
+        key={date}
+        className="bg-gradient-to-br from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-4 shadow-sm"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase text-gray-600 font-semibold mb-1">
+              {date}
+            </p>
+            <p className="text-2xl font-bold text-purple-700">
+              {formatWorkingTime(time)}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Active Time
+            </p>
+          </div>
+          <div className="p-3 bg-white rounded-full shadow-sm">
+            <Clock className="h-6 w-6 text-purple-600" />
+          </div>
+        </div>
+      </div>
+    ))}
+  </div>
+)}
                   {logsLoading ? (
                     <div className="flex items-center justify-center py-12">
                       <div className="text-center">

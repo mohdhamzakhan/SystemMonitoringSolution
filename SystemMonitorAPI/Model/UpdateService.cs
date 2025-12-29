@@ -58,7 +58,7 @@ namespace SystemMonitorAPI.Model
                     SystemID = systemId,
                     UpdateID = assignment.UpdateID,
                     Status = "Pending",
-                    LastAttemptDate = DateTime.UtcNow
+                    LastAttemptDate = DateTime.Now
                 }).ToList();
 
                 await _context.SystemUpdates.AddRangeAsync(systemUpdates);
@@ -69,7 +69,7 @@ namespace SystemMonitorAPI.Model
                     SystemID = systemId,
                     UpdateID = assignment.UpdateID,
                     LogMessage = "Update assigned",
-                    LogDate = DateTime.UtcNow
+                    LogDate = DateTime.Now
                 }).ToList();
 
                 await _context.UpdateLogs.AddRangeAsync(logEntries);

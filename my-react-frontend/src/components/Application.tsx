@@ -7,9 +7,10 @@ import MainPage from "./MainPage.tsx";
 import UpdateInfoForm from "./UpdateInfoForm.tsx";
 import AssignUpdatePage from "./AssignUpdatePage.tsx";
 import UpdateTrackingDashboard from "./UpdateTrackingDashboard.tsx";
-import Dashboard from "./ApplicationMgmt.tsx";
 import LoginPage from "./LoginPage.tsx";
 import SystemReport from "./SystemReport.jsx";
+import UpdateManagementPage from "./ApplicationMgmt.tsx";
+import WarrantyManagement from "./WarrantyManagement.tsx";
 
 const Application = () => (
   <Router>
@@ -24,8 +25,9 @@ const Application = () => (
       <Route path="/updateInfo" element={<UpdateInfoForm />} />
       <Route path="/updateDetails" element={<AssignUpdatePage />} />
       <Route path="/updateDashboard" element={<UpdateTrackingDashboard />} />
-      <Route path="/updateMgmt" element={<Dashboard />} />
+      <Route path="/updateMgmt" element={<UpdateManagementPage />} />
       <Route path="/systemReport" element={<SystemReport />} />
+      <Route path="/warranty-management" element={<WarrantyManagement />} />
       {/* Register details route */}
     </Routes>
   </Router>

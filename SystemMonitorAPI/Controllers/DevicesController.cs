@@ -46,6 +46,7 @@ namespace SystemMonitorAPI.Controllers
                 existingDevice.Status = "Connected";
                 existingDevice.LastUpdated = DateTime.Now;
                 existingDevice.Username = deviceInfo.Username;
+                existingDevice.AgentVersion = deviceInfo.AgentVersion;
             }
 
             // Add or update system details
@@ -67,7 +68,8 @@ namespace SystemMonitorAPI.Controllers
                     OUName = deviceInfo.OUName,
                     Username = deviceInfo.Username,
                     OSName = deviceInfo.OSName,
-                    OSVersion = deviceInfo.OSVersion
+                    OSVersion = deviceInfo.OSVersion,
+
                 };
                 _context.SystemDetails.Add(systemDetail);
 
@@ -668,7 +670,8 @@ namespace SystemMonitorAPI.Controllers
              d.device.Status,
              d.device.LastUpdated,
              d.device.Department,
-             KeyCount = d.KeyCount
+             KeyCount = d.KeyCount,
+
          })
          .ToListAsync();
 
@@ -677,6 +680,39 @@ namespace SystemMonitorAPI.Controllers
 
             return Ok(devices);
         }
+
+        [HttpGet("Warranty")]
+        public async Task<IActionResult> GetDevicesWarranty()
+        {
+            var devices = await _context.Devices
+         .Join(
+             _context.SystemDetails,
+             device => device.Hostname,
+             key => key.Hostname,
+             (device, details) => new
+             {
+                 device,
+                 details
+             })
+         .Select(d => new
+         {
+             d.device.Hostname,
+             d.device.Username,
+             d.device.Status,
+             d.device.LastUpdated,
+             d.device.Department,
+             d.details.EndDate,
+             d.details.StartDate
+
+         })
+         .ToListAsync();
+
+            // Optionally notify clients when data is fetched
+            await _hubContext.Clients.All.SendAsync("DevicesFetched", devices);
+
+            return Ok(devices);
+        }
+
         [HttpGet("{hostname}")]
         public async Task<IActionResult> GetDeviceDetails(string hostname)
         {
@@ -736,7 +772,8 @@ namespace SystemMonitorAPI.Controllers
             {
                 d.PasswordId,
                 d.Identifier,
-                d.RecoveryKey
+                d.RecoveryKey,
+                d.Archived
             }).ToListAsync();
 
             return Ok(bitLocker);
@@ -980,6 +1017,62 @@ namespace SystemMonitorAPI.Controllers
             return Ok(result);
         }
 
+        [HttpGet("WarrantyDetails")]
+        public async Task<IActionResult> GetWarrantyDetails()
+        {
+            var devices = await _context.Devices
+                .Include(d => d.SystemDetails)
+                .Where(d => d.SystemDetails.Any())
+                .Select(d => new DeviceWarrantyInput
+                {
+                    Hostname = d.Hostname,
+                    SystemDetails = d.SystemDetails
+                        .Select(sd => new SystemDetailDto
+                        {
+                            BIOSSerial = sd.BIOSSerial,
+                            ProductId = sd.ProductId,
+                            Make = sd.Make
+                        })
+                        .FirstOrDefault()
+                })
+                .Where(x =>
+                    x.SystemDetails.BIOSSerial != null &&
+                    x.SystemDetails.ProductId != null)
+                .ToListAsync();
+
+            return Ok(devices);
+        }
+        [HttpPost("Updatewarranty")]
+        public async Task<IActionResult> UpdateWarranty([FromBody] warrantyInfo model)
+        {
+            if (model == null ||
+                string.IsNullOrWhiteSpace(model.Hostname) ||
+                string.IsNullOrWhiteSpace(model.SerialNumber))
+            {
+                return BadRequest("Invalid warranty data.");
+            }
+
+            var device = await _context.Devices
+                .Include(d => d.SystemDetails)
+                .FirstOrDefaultAsync(d => d.Hostname == model.Hostname);
+
+            if (device == null)
+                return NotFound("Device not found.");
+
+            // Find matching system detail by serial number
+            var systemDetail = device.SystemDetails
+                .FirstOrDefault(sd => sd.BIOSSerial == model.SerialNumber);
+
+            if (systemDetail == null)
+                return NotFound("System details not found for this serial number.");
+
+            systemDetail.StartDate = model.WarrantyStartDate;
+            systemDetail.EndDate = model.WarrantyEndDate;
+
+            await _context.SaveChangesAsync();
+
+            return Ok("Warranty updated successfully.");
+        }
 
 
         [HttpDelete("{hostname}")]
@@ -1019,8 +1112,14 @@ namespace SystemMonitorAPI.Controllers
                 _context.BatteryInfo.Where(x => x.Hostname == hostname));
 
             // 2️⃣ Other dependent tables
-            _context.BitLockerKey.RemoveRange(
-                _context.BitLockerKey.Where(x => x.Hostname == hostname));
+            var records = _context.BitLockerKey
+                      .Where(x => x.Hostname == hostname)
+                      .ToList();
+
+            foreach (var record in records)
+            {
+                record.Archived = true;
+            }
 
             _context.SoftwareDetails.RemoveRange(
                 _context.SoftwareDetails.Where(x => x.Hostname == hostname));

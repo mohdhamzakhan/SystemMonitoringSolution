@@ -18,6 +18,7 @@ namespace SystemMonitorAPI.Model
         public string OSVersion { get; set; }
         public string Domain { get; set; }
         public string OUName { get; set; }
+        public string AgentVersion { get; set; }
 
         // Installed software list
         public List<SoftwareDetail> InstalledSoftware { get; set; } = new List<SoftwareDetail>();
@@ -148,6 +149,11 @@ namespace SystemMonitorAPI.Model
         public string OSVersion { get; set; }
         public string Domain { get; set; }
         public string OUName { get; set; }
+        public string ProductId { get; set; }
+        public string AgentVersion { get; set; }
+        public DateTime? EndDate { get; set; }
+        public DateTime? StartDate { get; set; }
+
     }
 
     public class SoftwareDetailDto
