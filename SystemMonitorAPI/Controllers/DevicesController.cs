@@ -1021,27 +1021,31 @@ namespace SystemMonitorAPI.Controllers
         public async Task<IActionResult> GetWarrantyDetails()
         {
             var devices = await _context.Devices
-                .Include(d => d.SystemDetails)
-                .Where(d => d.SystemDetails.Any())
+                // Device must have at least one BIOS serial
+                .Where(d => d.SystemDetails.Any(sd =>
+                    sd.BIOSSerial != null))
                 .Select(d => new DeviceWarrantyInput
                 {
                     Hostname = d.Hostname,
+
+                    // Get latest system detail with BIOS serial
                     SystemDetails = d.SystemDetails
+                        .Where(sd => sd.BIOSSerial != null)
+                        .OrderByDescending(sd => sd.Hostname)
                         .Select(sd => new SystemDetailDto
                         {
                             BIOSSerial = sd.BIOSSerial,
-                            ProductId = sd.ProductId,
+                            ProductId = sd.ProductId,   // can be NULL
                             Make = sd.Make
                         })
                         .FirstOrDefault()
                 })
-                .Where(x =>
-                    x.SystemDetails.BIOSSerial != null &&
-                    x.SystemDetails.ProductId != null)
                 .ToListAsync();
 
             return Ok(devices);
         }
+
+
         [HttpPost("Updatewarranty")]
         public async Task<IActionResult> UpdateWarranty([FromBody] warrantyInfo model)
         {
@@ -1172,6 +1176,107 @@ namespace SystemMonitorAPI.Controllers
         }
 
 
+        [HttpGet("assetManagement/{hostname}")]
+        public async Task<IActionResult> GetDataForAssetManagement(string hostname)
+        {
+            var device = await _context.Devices
+                .Where(d => d.Hostname == hostname)
+                .Include(d => d.SystemDetails)
+                .Include(d => d.PhysicalMemoryInfo)
+                .Join(_context.Systems, r => r.Hostname, u => u.Hostname, (r, u) => new { r, u })
+                .FirstOrDefaultAsync();
 
+            if (device == null)
+            {
+                return NotFound();
+            }
+
+            var systemDetails = device.r.SystemDetails.FirstOrDefault();
+
+            var macAddresses = await _context.NetworkDetail
+                .Where(n => n.Hostname == hostname)
+                .ToListAsync();
+
+            string lanMac = macAddresses.Where(m => m.NetworkType.Contains("ethernet", StringComparison.InvariantCultureIgnoreCase))
+                .Select(m => m.MACAddress).FirstOrDefault();
+
+            string wifiMac = macAddresses.Where(m => m.NetworkType.Contains("Wireless", StringComparison.InvariantCultureIgnoreCase) && m.IPAddress != "dynamic")
+                .Select(m => m.MACAddress).FirstOrDefault();
+
+            string WifiIPAddress = macAddresses.Where(m => m.NetworkType.Contains("Wireless", StringComparison.InvariantCultureIgnoreCase) && m.IPAddress != "dynamic")
+                .Select(m => m.IPAddress).FirstOrDefault();
+
+            string LanIPAddress = macAddresses.Where(m => m.NetworkType.Contains("ethernet", StringComparison.InvariantCultureIgnoreCase))
+                .Select(m => m.IPAddress).FirstOrDefault();
+
+            var hddDetails = await _context.DiskDetails
+                .Where(d => d.Hostname == hostname)
+                .ToListAsync();
+
+            double totalCapacityGb = hddDetails
+                        .Where(d => d.TypeOfDrive.Contains("Fixed", StringComparison.InvariantCultureIgnoreCase))
+                        .Sum(d => d.Capacity);   // ensure this is in GB
+
+            double NormalizeStorage(double totalGb)
+            {
+                if (totalGb < 128)
+                    return totalGb;
+
+                if (totalGb < 256)
+                    return 256;
+
+                if (totalGb < 512)
+                    return 512;
+
+                if (totalGb < 1024)
+                    return 1024;
+
+                if (totalGb < 2048)
+                    return 2048;
+
+                return totalGb;
+            }
+
+            // Calculate memory slots
+            var memorySlots = device.r.PhysicalMemoryInfo;
+            int totalSlots = memorySlots.Count;
+            int availableSlots = memorySlots.Count(m => !string.IsNullOrEmpty(m.SerialNo));
+
+            var deviceDto = new
+            {
+                device.r.Hostname,
+                device.r.Username,
+                device.r.Status,
+                device.r.LastUpdated,
+                systemDetail = systemDetails != null ? new
+                {
+                    systemDetails.Hostname,
+                    systemDetails.BIOSSerial,
+                    systemDetails.ProductId,
+                    Model = systemDetails.Make + " -- " + systemDetails.Model,
+                    systemDetails.ProcessorFamily,
+                    systemDetails.OSName,
+                    systemDetails.OSVersion,
+                    MemorySlots = $"{availableSlots}/{totalSlots}",
+                    PhysicalMemory = systemDetails.PhysicalMemory + " GB",
+                    systemDetails.OUName,
+                    Warranty_STARTDATE = systemDetails.StartDate?.ToString("dd-MMM-yyyy"),
+                    Warranty_EndDATE = systemDetails.EndDate?.ToString("dd-MMM-yyyy"),
+                    SystemId = device.u.SystemID,
+                    systemDetails.Domain,
+                    lanMacAddress = lanMac,
+                    wifiMac,
+                    LanIPAddress,
+                    WifiIPAddress,
+
+                    // ✅ FIX IS HERE
+                    StorageCapacity = NormalizeStorage(totalCapacityGb) + " GB"
+
+                } : null
+            };
+
+
+            return Ok(deviceDto);
+        }
     }
 }

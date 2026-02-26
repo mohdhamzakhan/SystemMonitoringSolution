@@ -101,7 +101,8 @@ const UpdateInfoForm = () => {
       Parameters: parameters,
       CreatedDate: new Date().toISOString(),
       IsActive: isActive,
-      IsLocal: isLocal,
+        IsLocal: isLocal,
+        SystemUpdates: []
     };
 
     try {
@@ -116,6 +117,8 @@ const UpdateInfoForm = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(systemUpdatePayload),
       });
+      
+      console.log(systemUpdatePayload)
 
       if (!response.ok) {
         const errorDetails = await response.text();

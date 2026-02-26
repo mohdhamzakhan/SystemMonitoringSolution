@@ -261,36 +261,48 @@ const DeviceMonitor = () => {
         fetchData();
     }, [activeTab, hostname]);
 
-useEffect(() => {
-  if (activeTab !== "logs") return;
+    useEffect(() => {
+      if (activeTab !== "logs") return;
 
-  const fetchLogs = async () => {
-    setLogsLoading(true);
-    try {
-      const res = await axios.get(
-        `${APP_CONSTANTS.API_BASE_URL}/api/devices/${hostname}/systemEvent`,
-        {
-          params: {
-            from: fromDate || undefined,
-            to: toDate || undefined,
-          },
+      const fetchLogs = async () => {
+        setLogsLoading(true);
+        try {
+          const res = await axios.get(
+            `${APP_CONSTANTS.API_BASE_URL}/api/devices/${hostname}/systemEvent`,
+            {
+              params: {
+                from: fromDate || undefined,
+                to: toDate || undefined,
+              },
+            }
+          );
+
+          const data = res.data?.$values ?? [];
+          setLogs(data);
+          calculateWorkingTime(data);
+
+          console.log("Logs fetched:", data);
+        } catch (err) {
+          console.error("Failed to fetch logs", err);
+        } finally {
+          setLogsLoading(false);
         }
-      );
+      };
 
-      const data = res.data?.$values ?? [];
-      setLogs(data);
-      calculateWorkingTime(data);
+      fetchLogs();
+    }, [activeTab, fromDate, toDate, hostname]);
 
-      console.log("Logs fetched:", data);
-    } catch (err) {
-      console.error("Failed to fetch logs", err);
-    } finally {
-      setLogsLoading(false);
-    }
-  };
+    // Add this useEffect after the existing logs useEffect
+    useEffect(() => {
+      if (activeTab !== "logs" || logs.length === 0) return;
 
-  fetchLogs();
-}, [activeTab, fromDate, toDate, hostname]);
+      // Recalculate working time every minute to update current active time
+      const interval = setInterval(() => {
+        calculateWorkingTime(logs);
+      }, 60000); // Update every 60 seconds
+
+      return () => clearInterval(interval);
+    }, [activeTab, logs]);
 
 //   const fetchLogs = async () => {
 //     setLogsLoading(true);
@@ -341,6 +353,7 @@ const calculateWorkingTime = (logs) => {
 
   // Calculate working time for each date
   const workingTimeByDate = {};
+  const today = new Date().toLocaleDateString();
 
   Object.keys(logsByDate).forEach(date => {
     const dayLogs = logsByDate[date].sort((a, b) => a.time - b.time);
@@ -376,9 +389,18 @@ const calculateWorkingTime = (logs) => {
         isLocked = false;
       }
 
-      // If this is the last log and session is still active, count till last log time
-      if (index === dayLogs.length - 1 && sessionStart && !isLocked) {
-        totalWorkingMs += log.time - sessionStart;
+      // If this is the last log of the day
+      if (index === dayLogs.length - 1) {
+        if (sessionStart && !isLocked) {
+          // Session is still active
+          if (date === today) {
+            // For today, calculate up to current time
+            totalWorkingMs += new Date() - sessionStart;
+          } else {
+            // For past dates, use last log time
+            totalWorkingMs += log.time - sessionStart;
+          }
+        }
       }
     });
 
@@ -1037,7 +1059,7 @@ const fetchLogs = async () => {
                                             Network Adapter
                                         </p>
                                         <p className="text-xs text-gray-500">
-                                            {network.networkType}
+                                            {network.interfaceName}
                                         </p>
                                         </div>
                                     </div>

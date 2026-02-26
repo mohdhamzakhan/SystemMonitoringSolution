@@ -27,6 +27,7 @@ namespace SystemMonitorWorker
         private const string ApiBaseUrl = @"http://10.235.20.49:5295/api";
         string password = string.Empty;
         string workingDirectory = @"C:\MEAI\Installer";
+        string installerWorkingDirectory = @"C:\MEAI\Installations";
         private readonly object _eventFileLock = new();
         private readonly string _eventStorePath =
             Path.Combine(
@@ -65,6 +66,10 @@ namespace SystemMonitorWorker
             SaveEvent("Startup"); // Startup detected
             await SyncEventsToApiAsync(); // Sync pending events
 
+            if(!Directory.Exists(workingDirectory))
+            {
+                Directory.CreateDirectory(workingDirectory);
+            }
             // NEW: ensure the 15‑min task exists
             try
             {
@@ -524,7 +529,7 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
                         {
                             var uninstallations = await FetchUninstalltionFromApi(hostname);
                             string username = "", password = "";
-                            string uninstallFile = Path.Combine(workingDirectory, "uninstall.bat");
+                            string uninstallFile = Path.Combine(installerWorkingDirectory, "uninstall.bat");
 
                             if (File.Exists(uninstallFile))
                                 File.Delete(uninstallFile);
@@ -578,18 +583,18 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
                                     {
                                         _logger.LogInformation($"Processing update: {update.FilePath}");
 
-                                        if (Directory.Exists(workingDirectory))
+                                        if (Directory.Exists(installerWorkingDirectory))
                                         {
                                             try
                                             {
-                                                Directory.Delete(workingDirectory, true);
+                                                Directory.Delete(installerWorkingDirectory, true);
                                             }
                                             catch { /* Ignore delete errors */ }
                                         }
 
-                                        Directory.CreateDirectory(workingDirectory);
+                                        Directory.CreateDirectory(installerWorkingDirectory);
 
-                                        var localPath = Path.Combine(workingDirectory, Path.GetFileName(update.FilePath));
+                                        var localPath = Path.Combine(installerWorkingDirectory, Path.GetFileName(update.FilePath));
                                         await CopyFileFromUNC(update.FilePath, localPath);
                                         _logger.LogInformation("File copied successfully.");
 
@@ -1027,7 +1032,7 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
         private async Task RunInstallationScript(string zipFilePath, string installerExeName, string parameters, string username, string encryptedPassword, bool isLocal)
         {
             string value = Decrypt(encryptedPassword, useHashing: true);
-            string text = Path.Combine(workingDirectory + "\\", Path.GetFileNameWithoutExtension(zipFilePath));
+            string text = Path.Combine(installerWorkingDirectory + "\\", Path.GetFileNameWithoutExtension(zipFilePath));
             if (!isLocal)
             {
                 string psScript = $"\r\n# Ensure the module is loaded (Optional: You can skip if not needed)\r\n$env:PSModulePath += ';C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules';\r\nSet-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force;\r\nImport-Module ScheduledTasks;\r\nImport-Module Microsoft.PowerShell.Archive;\r\n\r\n# Task Name\r\n$taskName = 'SMM_TemporaryInstallationTask'\r\n\r\n# Unregister existing scheduled task if present\r\nif (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{\r\n    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false\r\n    Start-Sleep -Seconds 5  # Small delay to ensure cleanup\r\n}}\r\n\r\n# Unzip the file\r\nExpand-Archive -Path '{zipFilePath}' -DestinationPath '{text}' -Force\r\n\r\n# Get the path to the installer executable\r\n$installerPath = '{Path.Combine(text, installerExeName)}'\r\n\r\n# Convert password to SecureString\r\n$securePassword = ConvertTo-SecureString '{value}' -AsPlainText -Force\r\n\r\n# Create a credential object\r\n$credential = New-Object System.Management.Automation.PSCredential('{username}', $securePassword)\r\n\r\n# Define the scheduled task action\r\n$action = New-ScheduledTaskAction -Execute $installerPath -Argument '{parameters}'\r\n\r\n# Define the trigger (run immediately)\r\n$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)\r\n\r\n# Define the principal with elevation\r\n$principal = New-ScheduledTaskPrincipal -UserId '{username}' -LogonType Password -RunLevel Highest\r\n\r\n# Register the scheduled task\r\nRegister-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User '{username}' -Password '{value}'\r\n\r\n# Start the scheduled task\r\nStart-ScheduledTask -TaskName $taskName\r\n\r\n# Wait for 15 minutes (900 seconds)\r\n#Start-Sleep -Seconds 900\r\n\r\n# Delete the installer and extracted files\r\n#if (Test-Path $installerPath) {{\r\n    #Remove-Item -Path $installerPath -Force\r\n#}}\r\n\r\n#if (Test-Path '{text}') {{\r\n   # Remove-Item -Path '{text}' -Recurse -Force\r\n#}}\r\n\r\n# Delete the ZIP file\r\n#if (Test-Path '{zipFilePath}') {{\r\n    #Remove-Item -Path '{zipFilePath}' -Force\r\n#}}\r\n\r\n# Clean up the scheduled task\r\n#Unregister-ScheduledTask -TaskName $taskName -Confirm:$false\r\n";
@@ -1671,39 +1676,51 @@ Start-ScheduledTask -TaskName $taskName
         {
             var networkDetailsList = new List<NetworkDetails>();
 
-            foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+            var physicalTypes = new[]
             {
-                if (networkInterface.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
-                {
-                    networkDetailsList.Add(new NetworkDetails
-                    {
-                        Hostname = Environment.MachineName,
-                        InterfaceName = networkInterface.Name,
-                        IPAddress = "dynamic",
-                        MACAddress = BitConverter.ToString(networkInterface.GetPhysicalAddress().GetAddressBytes()),
-                        NetworkType = networkInterface.NetworkInterfaceType.ToString(),
-                        Device = device // This line sets the entire DeviceInfo object
-                    });
-                }
-                // Get the operational status of the network interface
-                if (networkInterface.OperationalStatus != OperationalStatus.Up)
+        NetworkInterfaceType.Ethernet,
+        NetworkInterfaceType.GigabitEthernet,
+        NetworkInterfaceType.FastEthernetFx,
+        NetworkInterfaceType.FastEthernetT,
+        NetworkInterfaceType.Wireless80211
+    };
+
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                // Only physical Ethernet/WiFi
+                if (!physicalTypes.Contains(ni.NetworkInterfaceType))
                     continue;
 
-                // Get the IP properties of the network interface
-                var ipProperties = networkInterface.GetIPProperties();
-                var ipv4Addresses = ipProperties.UnicastAddresses
+                // Skip adapters without MAC
+                var macBytes = ni.GetPhysicalAddress().GetAddressBytes();
+                if (macBytes.Length == 0)
+                    continue;
+
+                // Skip obvious virtual adapters
+                var desc = ni.Description.ToLower();
+                if (desc.Contains("virtual") ||
+                    desc.Contains("vmware") ||
+                    desc.Contains("hyper-v") ||
+                    desc.Contains("vpn"))
+                    continue;
+
+                var ipProps = ni.GetIPProperties();
+                var ipv4Addresses = ipProps.UnicastAddresses
                     .Where(ip => ip.Address.AddressFamily == AddressFamily.InterNetwork);
 
-                foreach (var address in ipv4Addresses)
+                foreach (var addr in ipv4Addresses.DefaultIfEmpty())
                 {
                     networkDetailsList.Add(new NetworkDetails
                     {
                         Hostname = Environment.MachineName,
-                        InterfaceName = networkInterface.Name,
-                        IPAddress = address.Address.ToString(),
-                        MACAddress = BitConverter.ToString(networkInterface.GetPhysicalAddress().GetAddressBytes()),
-                        NetworkType = networkInterface.NetworkInterfaceType.ToString(),
-                        Device = device // This line sets the entire DeviceInfo object
+
+                        // ✅ This matches “Connection Name”
+                        InterfaceName = ni.Name,
+
+                        IPAddress = addr?.Address?.ToString() ?? "No IP",
+                        MACAddress = BitConverter.ToString(macBytes),
+                        NetworkType = ni.NetworkInterfaceType.ToString(),
+                        Device = device
                     });
                 }
             }

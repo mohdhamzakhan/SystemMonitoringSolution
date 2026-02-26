@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Worker">
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -9,6 +9,7 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PlatformTarget>x64</PlatformTarget>
     <UserSecretsId>dotnet-SystemMonitorWorker-f571fc9f-d39b-4179-a67b-6800a34790e9</UserSecretsId>
+    <Version>2016.0.1</Version>
   </PropertyGroup>
 
   <ItemGroup>

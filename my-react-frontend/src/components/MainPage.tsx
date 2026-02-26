@@ -86,7 +86,7 @@ function MainPage() {
       
       const [statsResponse, expiringResponse] = await Promise.all([
         fetch(`${API_BASE}/statistics`),
-        fetch(`${API_BASE}/expiring?months=2`)
+        fetch(`${API_BASE}/expiring?months=3`)
       ]);
 
       const statsData = await statsResponse.json();
@@ -254,12 +254,12 @@ function MainPage() {
           />
         </div>
 
-        {/* Systems with Warranty Expiring in 2 Months */}
+        {/* Systems with Warranty Expiring in 3 Months */}
         <CustomCard className="mb-6">
           <div className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-gray-900">
-                Systems with Warranty Expiring in 2 Months
+                Systems with Warranty Expiring in 3 Months
               </h2>
               <span className="px-3 py-1 bg-red-50 text-red-700 rounded-full text-sm font-medium">
                 {expiringWarranties.length} Systems
@@ -279,7 +279,7 @@ function MainPage() {
                   <CheckCircle className="h-8 w-8 text-green-600" />
                 </div>
                 <p className="text-gray-500 text-lg font-medium">
-                  No warranties expiring in the next 2 months
+                  No warranties expiring in the next 3 months
                 </p>
                 <p className="text-gray-400 text-sm mt-1">
                   All systems are covered
