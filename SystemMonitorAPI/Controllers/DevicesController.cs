@@ -15,11 +15,12 @@ namespace SystemMonitorAPI.Controllers
     {
         private readonly SystemMonitorContext _context;
         private readonly IHubContext<DeviceHub> _hubContext;
-
-        public DevicesController(SystemMonitorContext context, IHubContext<DeviceHub> hubContext)
+        private readonly INvdService _nvdService;
+        public DevicesController(SystemMonitorContext context, IHubContext<DeviceHub> hubContext, INvdService nvdService)
         {
             _context = context;
             _hubContext = hubContext;
+            _nvdService = nvdService;
         }
         [HttpPost]
         public async Task<IActionResult> RegisterDevice([FromBody] DeviceInfo deviceInfo)
@@ -1277,6 +1278,18 @@ namespace SystemMonitorAPI.Controllers
 
 
             return Ok(deviceDto);
+        }
+
+        [HttpGet("test-vuln")]
+        public async Task<IActionResult> Test()
+        {
+            var result = await _nvdService.GetCvesAsync(
+                "Google",
+                "Chrome",
+                "140.0.7339.185"
+            );
+
+            return Ok(result);
         }
     }
 }

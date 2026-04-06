@@ -39,6 +39,7 @@ namespace SystemMonitorWorker
         {
             _logger = logger;
             _httpClient = httpClient;
+            _httpClient.Timeout = TimeSpan.FromSeconds(60);
         }
         private void HideLocalFolder()
         {
@@ -92,7 +93,13 @@ namespace SystemMonitorWorker
                     await SyncEventsToApiAsync();
                 }
             };
-
+            SystemEvents.PowerModeChanged += (s, e) =>
+            {
+                if (e.Mode == PowerModes.Resume)
+                {
+                    _logger.LogInformation("System resumed from sleep.");
+                }
+            };
             await base.StartAsync(cancellationToken);
         }
 
@@ -503,7 +510,12 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
 
         //    _logger.LogInformation("System Monitoring Service stopped.");
         //}
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern uint SetThreadExecutionState(uint esFlags);
 
+        private const uint ES_CONTINUOUS = 0x80000000;
+        private const uint ES_SYSTEM_REQUIRED = 0x00000001;
+        private const uint ES_AWAYMODE_REQUIRED = 0x00000040;
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("System Monitoring Service started.");
@@ -514,7 +526,10 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
 
             while (!stoppingToken.IsCancellationRequested)
             {
-
+                SetThreadExecutionState(
+                        ES_CONTINUOUS |
+                        ES_SYSTEM_REQUIRED |
+                        ES_AWAYMODE_REQUIRED);
                 try
                 {
                     var currentTime = DateTime.Now;

@@ -14,13 +14,22 @@ builder.Services.AddControllers()
 // DB
 builder.Services.AddDbContext<SystemMonitorContext>(options =>
     options.UseOracle(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
+        builder.Configuration.GetConnectionString("SystemMonitorDefaultConnection"),
         o => o.UseOracleSQLCompatibility(OracleSQLCompatibility.DatabaseVersion19))
     .UseLazyLoadingProxies());
 
 // Services
 builder.Services.AddScoped<IDeviceService, DeviceService>();
 builder.Services.AddSingleton<CredentialService>();
+builder.Services.AddScoped<IVulnerabilityScanService, VulnerabilityScanService>();
+builder.Services.AddHttpClient<IVulnerabilityEngine, VulnerabilityEngine>();
+builder.Services.AddHttpClient<INvdService, NvdService>(client =>
+{   
+    client.DefaultRequestHeaders.Add("User-Agent", "SystemMonitorAPI");
+
+    // Optional but recommended (if you have API key)
+    // client.DefaultRequestHeaders.Add("apiKey", "YOUR_NVD_API_KEY");
+});
 
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
@@ -45,6 +54,10 @@ builder.Services.AddCors(options =>
             .AllowCredentials();
     });
 });
+
+builder.Services.AddMemoryCache();
+
+
 
 var app = builder.Build();
 

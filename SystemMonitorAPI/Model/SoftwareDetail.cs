@@ -22,5 +22,9 @@ namespace SystemMonitorAPI.Model
         public string? Publisher { get; set; }
         [Column("UNINSTALLSTRING")]
         public string? UninstallString { get; set; }
+
+        // 🔥 ADD THIS
+        [InverseProperty("SoftwareDetail")]
+        public virtual ICollection<Vulnerability> Vulnerabilities { get; set; } = new List<Vulnerability>();
     }
 }

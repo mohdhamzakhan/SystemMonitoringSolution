@@ -1,6 +1,8 @@
-﻿using Microsoft.AspNetCore.Cors;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.DirectoryServices.AccountManagement;
 using System.IdentityModel.Tokens.Jwt;
@@ -17,9 +19,11 @@ namespace SystemMonitorAPI.Controllers
     public class AuthenticationController : ControllerBase
     {
         private readonly IConfiguration _config;
-        public AuthenticationController(IConfiguration config)
+        private readonly SystemMonitorContext _context;
+        public AuthenticationController(IConfiguration config, SystemMonitorContext context)
         {
             _config = config;
+            _context = context;
         }
         [SupportedOSPlatform("windows")]
         [HttpPost("login")]
@@ -58,6 +62,50 @@ namespace SystemMonitorAPI.Controllers
                 return "User";
             }
         }
+
+        [SupportedOSPlatform("windows")]
+        [HttpGet("ad-users")]
+        public IActionResult GetADUsers()
+        {
+            string domain = _config["ActiveDirectory:Domain"];
+            var userList = new List<string>();
+
+            using (var context = new PrincipalContext(ContextType.Domain, domain))
+            {
+                foreach (var groupName in new[] { "Sanand-IT", "MEAI-IT" })
+                {
+                    var group = GroupPrincipal.FindByIdentity(context, groupName);
+                    if (group == null) continue;
+
+                    foreach (var member in group.GetMembers(false))
+                    {
+                        if (member is UserPrincipal user && !string.IsNullOrEmpty(user.SamAccountName))
+                        {
+                            if (!userList.Contains(user.SamAccountName))
+                                userList.Add(user.SamAccountName);
+                        }
+                    }
+                }
+            }
+
+            return Ok(userList.OrderBy(u => u));
+        }
+
+        [HttpGet("by-user/{username}")]
+        [Authorize]
+        public IActionResult GetDeviceByUser(string username)
+        {
+            // Replace with your actual data access logic
+            var device = _context.Devices
+                .FirstOrDefault(d => d.Username != null &&
+                                     d.Username.ToLower() == username.ToLower());
+
+            if (device == null)
+                return NotFound("No device found for this user.");
+
+            return Ok(new { hostname = device.Hostname });
+        }
+
         private string GenerateJwtToken(string username, string role)
         {
             var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));

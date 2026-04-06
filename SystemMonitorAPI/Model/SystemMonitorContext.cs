@@ -24,6 +24,7 @@ namespace SystemMonitorAPI.Model
 
         public DbSet<BatteryInfo> BatteryInfo { get; set; }
         public DbSet<SystemEventInfo> SystemEvents { get; set; }
+        public DbSet<Vulnerability> Vulnerabilities { get; set; }
 
         #region Installation
         public DbSet<SystemInfo> Systems { get; set; }
@@ -103,6 +104,10 @@ namespace SystemMonitorAPI.Model
                     .HasConstraintName("FK_SMM_BATTERYINFO_SMM_DEVICE_HOSTNAME")
                     .OnDelete(DeleteBehavior.Restrict); // NO ACTION
             });
+
+            modelBuilder.Entity<Vulnerability>()
+                .HasIndex(v => new { v.CveId, v.SoftwareDetailsID })
+                .IsUnique();
 
 
 

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Oracle.EntityFrameworkCore.Metadata;
 using SystemMonitorAPI.Model;
@@ -11,9 +12,11 @@ using SystemMonitorAPI.Model;
 namespace SystemMonitorAPI.Migrations
 {
     [DbContext(typeof(SystemMonitorContext))]
-    partial class SystemMonitorContextModelSnapshot : ModelSnapshot
+    [Migration("20260404102831_vulneability")]
+    partial class vulneability
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -737,7 +740,7 @@ namespace SystemMonitorAPI.Migrations
                         .HasColumnName("CVE_ID");
 
                     b.Property<string>("Description")
-                        .HasColumnType("NCLOB")
+                        .HasColumnType("NVARCHAR2(2000)")
                         .HasColumnName("DESCRIPTION");
 
                     b.Property<DateTime?>("Published")
