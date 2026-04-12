@@ -22,6 +22,10 @@ namespace SystemMonitorAPI.Controllers
             _hubContext = hubContext;
             _nvdService = nvdService;
         }
+        private string Normalize(string? value)
+        {
+            return value?.Trim().ToLowerInvariant() ?? string.Empty;
+        }
         [HttpPost]
         public async Task<IActionResult> RegisterDevice([FromBody] DeviceInfo deviceInfo)
         {
@@ -98,59 +102,60 @@ namespace SystemMonitorAPI.Controllers
             }
 
             // Add or update software details
-            var existingSoftwareDetails = _context.SoftwareDetails
-                .Where(s => s.Hostname == existingDevice.Hostname);
+            // 🔹 Load existing software ONCE (tracked)
+            var existingSoftwares = await _context.SoftwareDetails
+                .Where(d => d.Hostname == existingDevice.Hostname)
+                .ToListAsync();
 
-            //_context.SoftwareDetails.RemoveRange(existingSoftwareDetails); // Remove old entries
-            //foreach (var software in deviceInfo.InstalledSoftware)
-            //{
-            //    _context.SoftwareDetails.Add(new SoftwareDetail
-            //    {
-            //        Hostname = existingDevice.Hostname,
-            //        SoftwareName = software.SoftwareName,
-            //        Version = software.Version,
-            //        Publisher = software.Publisher
-            //    });
-            //}
+            // 🔹 Normalize helper
+            string Normalize(string? value) => value?.Trim().ToLowerInvariant() ?? string.Empty;
+
+            // 🔹 Build lookup (include version to avoid collision)
+            var dbMap = existingSoftwares
+                .GroupBy(d => $"{Normalize(d.SoftwareName)}|{Normalize(d.Publisher)}|{Normalize(d.Version)}")
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // 🔹 Track incoming keys
+            var incomingKeys = new HashSet<string>();
 
             foreach (var software in deviceInfo.InstalledSoftware)
             {
-                // Check if a record with the same Hostname, DiskName, and TypeOfDrive already exists
-                var existingSoftware = _context.SoftwareDetails.FirstOrDefault(d =>
-                    d.Hostname == existingDevice.Hostname &&
-                    d.SoftwareName == software.SoftwareName &&
-                    d.Publisher == software.Publisher);
 
-                if (existingSoftware != null)
+
+                var key = $"{Normalize(software.SoftwareName)}|{Normalize(software.Publisher)}|{Normalize(software.Version)}";
+                incomingKeys.Add(key);
+
+                if (dbMap.TryGetValue(key, out var matches))
                 {
-                    // Update the existing record
-                    existingSoftware.Version = software.Version;
-                    existingSoftware.UninstallString = software.UninstallString;
+                    // 🔥 Update ALL matching rows (important for duplicates)
+                    foreach (var existing in matches)
+                    {
+                        existing.UninstallString = software.UninstallString;
+                        existing.SystemScore = software.SystemScore;
+                    }
                 }
                 else
                 {
-                    // Add a new record if it doesn't exist
+                    // 🔹 Insert new software
                     _context.SoftwareDetails.Add(new SoftwareDetail
                     {
                         Hostname = existingDevice.Hostname,
                         SoftwareName = software.SoftwareName,
                         Publisher = software.Publisher,
                         Version = software.Version,
-                        UninstallString = software.UninstallString
+                        UninstallString = software.UninstallString,
+                        FirstSeen = DateTime.Now,
+                        SystemScore = software.SystemScore
                     });
                 }
             }
-
-            var softwareDetails = deviceInfo.InstalledSoftware.Select(d => d.SoftwareName).ToList();
-
-            var softwareDatabase = await _context.SoftwareDetails
-                .Where(d => d.Hostname == existingDevice.Hostname)
-                .ToListAsync();
-
-            // Delete disks that are not in the current deviceInfo
-            var softwareToDelete = softwareDatabase
-                .Where(d => !softwareDetails.Contains(d.SoftwareName))
-                .ToList();
+            var softwareToDelete = existingSoftwares
+     .Where(d =>
+     {
+         var key = $"{Normalize(d.SoftwareName)}|{Normalize(d.Publisher)}|{Normalize(d.Version)}";
+         return !incomingKeys.Contains(key);
+     })
+     .ToList();
 
             if (softwareToDelete.Any())
             {

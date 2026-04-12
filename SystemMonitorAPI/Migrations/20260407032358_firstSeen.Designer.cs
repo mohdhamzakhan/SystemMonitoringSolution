@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Oracle.EntityFrameworkCore.Metadata;
 using SystemMonitorAPI.Model;
@@ -11,9 +12,11 @@ using SystemMonitorAPI.Model;
 namespace SystemMonitorAPI.Migrations
 {
     [DbContext(typeof(SystemMonitorContext))]
-    partial class SystemMonitorContextModelSnapshot : ModelSnapshot
+    [Migration("20260407032358_firstSeen")]
+    partial class firstSeen
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -462,10 +465,6 @@ namespace SystemMonitorAPI.Migrations
                         .IsRequired()
                         .HasColumnType("NVARCHAR2(2000)")
                         .HasColumnName("SOFTWARENAME");
-
-                    b.Property<int>("SystemScore")
-                        .HasColumnType("NUMBER(10)")
-                        .HasColumnName("SYSTEM_SCORE");
 
                     b.Property<string>("UninstallString")
                         .HasColumnType("NVARCHAR2(2000)")

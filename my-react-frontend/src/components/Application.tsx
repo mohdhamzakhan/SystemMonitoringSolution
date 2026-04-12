@@ -11,26 +11,28 @@ import LoginPage from "./LoginPage.tsx";
 import SystemReport from "./SystemReport.jsx";
 import UpdateManagementPage from "./ApplicationMgmt.tsx";
 import WarrantyManagement from "./WarrantyManagement.tsx";
+import VulnerabilityDashboard from "./VulnerabilityDashboard.tsx";
 
 const Application = () => (
-  <Router>
-    <Routes>
-      {/* <Route path="/" element={<LoginPage />} /> */}
-      <Route path="/" element={<LoginPage />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/MainPage" element={<MainPage />} />
-      <Route path="/devicelist" element={<DeviceList />} />
-      <Route path="/device/:hostname" element={<DeviceDetails />} />{" "}
-      <Route path="/software" element={<SoftwareList />} />
-      <Route path="/updateInfo" element={<UpdateInfoForm />} />
-      <Route path="/updateDetails" element={<AssignUpdatePage />} />
-      <Route path="/updateDashboard" element={<UpdateTrackingDashboard />} />
-      <Route path="/updateMgmt" element={<UpdateManagementPage />} />
-      <Route path="/systemReport" element={<SystemReport />} />
-      <Route path="/warranty-management" element={<WarrantyManagement />} />
-      {/* Register details route */}
-    </Routes>
-  </Router>
+    <Router>
+        <Routes>
+            {/* <Route path="/" element={<LoginPage />} /> */}
+            <Route path="/" element={<LoginPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/MainPage" element={<MainPage />} />
+            <Route path="/devicelist" element={<DeviceList />} />
+            <Route path="/device/:hostname" element={<DeviceDetails />} />{" "}
+            <Route path="/software" element={<SoftwareList />} />
+            <Route path="/updateInfo" element={<UpdateInfoForm />} />
+            <Route path="/updateDetails" element={<AssignUpdatePage />} />
+            <Route path="/updateDashboard" element={<UpdateTrackingDashboard />} />
+            <Route path="/updateMgmt" element={<UpdateManagementPage />} />
+            <Route path="/systemReport" element={<SystemReport />} />
+            <Route path="/warranty-management" element={<WarrantyManagement />} />
+            <Route path="/vulnerability-dashboard" element={<VulnerabilityDashboard />} />
+            {/* Register details route */}
+        </Routes>
+    </Router>
 );
 
 export default Application;

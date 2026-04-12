@@ -37,8 +37,7 @@ namespace SystemMonitorAPI.Model
         #region Uninstallation
         public DbSet<UninstallInfo> uninstallInfos { get; set; }
         #endregion
-
-
+        
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -109,7 +108,7 @@ namespace SystemMonitorAPI.Model
                 .HasIndex(v => new { v.CveId, v.SoftwareDetailsID })
                 .IsUnique();
 
-
+            
 
             #region Installation
             // Configure the many-to-many relationship between SystemInfo and UpdateInfo

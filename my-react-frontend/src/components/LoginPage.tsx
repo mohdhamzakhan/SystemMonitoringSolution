@@ -18,15 +18,21 @@ export default function LoginPage() {
                 const response = await axios.get(
                     APP_CONSTANTS.API_BASE_URL + "/api/auth/ad-users"
                 );
-                const data = response.data;
-                setAdUsers(data.$values ?? []);
-                console.log("AD Users response:", response.data, typeof response.data);
+
+                console.log("API Response:", response.data);
+
+                const users = Array.isArray(response.data)
+                    ? response.data
+                    : response.data?.data || response.data?.users || [];
+
+                setAdUsers(users);
             } catch (err) {
                 console.error("Failed to load AD users", err);
             } finally {
                 setLoadingUsers(false);
             }
         };
+
         fetchADUsers();
     }, []);
 

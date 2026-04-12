@@ -53,55 +53,196 @@ namespace SystemMonitorAPI.Model
 
             List<CveDto> results = new();
 
-            // ── Strategy 1: Resolve CPE from NVD dictionary, then search ──
-            string? cpe = await ResolveCpeAsync(normName, normPublisher, normVersion);
+            // ── Strategy 1: Resolve CPE vendor:product, then use virtualMatchString ──
+            // virtualMatchString tells NVD "find CVEs affecting this product AT this version"
+            string? baseCpe = await ResolveCpeBaseAsync(normName, normPublisher);
 
-            if (cpe != null)
+            if (baseCpe != null)
             {
-                _logger.LogInformation("[NVD] Resolved CPE: {Cpe}", cpe);
-                results = await SearchByCpeAsync(cpe);
+                _logger.LogInformation("[NVD] Base CPE resolved: {Cpe}", baseCpe);
+
+                // ✅ Use virtualMatchString with version — NVD handles version range logic
+                results = await SearchByVirtualCpeAsync(baseCpe, normVersion);
+
+                _logger.LogInformation("[NVD] virtualMatchString returned {Count} CVEs", results.Count);
             }
 
-            // ── Strategy 2: Keyword search (no CPE found or CPE returned 0) ──
+            // ── Strategy 2: Keyword search + strict version filter ──
             if (results.Count == 0)
             {
                 _logger.LogInformation("[NVD] Falling back to keyword search");
                 results = await SearchByKeywordAsync(normName, normVersion);
+
+                if (!string.IsNullOrEmpty(normVersion) && normVersion != "*")
+                    results = FilterByVersion(results, normVersion);
+
+                _logger.LogInformation("[NVD] Keyword search returned {Count} CVEs after filter", results.Count);
             }
 
-            // ── Strategy 3: Broader keyword — name only, no version ──
-            if (results.Count == 0 && !string.IsNullOrEmpty(normVersion))
+            // ── Strategy 3: Base CPE without version (broader, still filter) ──
+            if (results.Count == 0 && baseCpe != null)
             {
-                _logger.LogInformation("[NVD] Broadening keyword (no version)");
-                results = await SearchByKeywordAsync(normName, version: null);
+                _logger.LogInformation("[NVD] Strategy 3: CPE without version filter");
+                var broad = await SearchByVirtualCpeAsync(baseCpe, version: null);
+                results = FilterByVersion(broad, normVersion);
+                _logger.LogInformation("[NVD] Strategy 3 returned {Count} CVEs after filter", results.Count);
             }
 
-            results = results.Take(MaxResults).ToList();
+            results = results
+                .GroupBy(r => r.Id)         // deduplicate
+                .Select(g => g.First())
+                .Take(MaxResults)
+                .ToList();
 
             _cache.Set(cacheKey, results, TimeSpan.FromHours(6));
 
-            _logger.LogInformation(
-                "[NVD] {Name} {Version} → {Count} CVEs", normName, normVersion, results.Count);
+            _logger.LogInformation("[NVD] FINAL {Name} {Version} → {Count} CVEs",
+                normName, normVersion, results.Count);
 
             return results;
         }
 
         // ═══════════════════════════════════════════════════════════════
-        //  STRATEGY 1 — Discover the correct CPE from NVD's dictionary
+        //  STRATEGY 1a — Resolve only vendor:product (no version)
         // ═══════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Queries the NVD CPE dictionary to find the best-matching CPE name
-        /// for a given software. This avoids all hardcoded vendor/product maps.
+        /// Returns a base CPE like "cpe:2.3:a:google:chrome" (no version).
+        /// Version is handled separately by virtualMatchString.
         /// </summary>
+        private async Task<string?> ResolveCpeBaseAsync(string softwareName, string publisher)
+        {
+            string keyword = string.IsNullOrEmpty(publisher)
+                ? softwareName.Trim()
+                : $"{softwareName} {publisher}".Trim();
+
+            string url = $"https://services.nvd.nist.gov/rest/json/cpes/2.0" +
+                         $"?keywordSearch={Uri.EscapeDataString(keyword)}" +
+                         $"&resultsPerPage=5";
+
+            string json = await FetchAsync(url);
+            if (string.IsNullOrEmpty(json) || json == "{}") return null;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("products", out var products)) return null;
+
+                string? bestCpe = null;
+                int bestScore = 0;
+
+                foreach (var p in products.EnumerateArray())
+                {
+                    if (!p.TryGetProperty("cpe", out var cpeNode)) continue;
+
+                    string? cpeName = cpeNode.TryGetProperty("cpeName", out var cn)
+                        ? cn.GetString() : null;
+
+                    if (string.IsNullOrEmpty(cpeName)) continue;
+
+                    int score = ScoreCpeMatch(cpeName, softwareName, publisher);
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestCpe = cpeName;
+                    }
+                }
+
+                if (bestCpe == null) return null;
+
+                // ✅ Return ONLY vendor:product part — strip version and trailing fields
+                // cpe:2.3:a:google:chrome:108.0.1:*:*:... → cpe:2.3:a:google:chrome
+                var parts = bestCpe.Split(':');
+                if (parts.Length >= 5)
+                    return $"{parts[0]}:{parts[1]}:{parts[2]}:{parts[3]}:{parts[4]}";
+
+                return bestCpe;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[NVD] CPE base resolution failed");
+                return null;
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  STRATEGY 1b — virtualMatchString (version-aware NVD query)
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Uses NVD's virtualMatchString which correctly handles version ranges.
+        /// e.g. cpe:2.3:a:google:chrome:108.0.5359 will match CVEs that affect
+        /// that specific version even via versionStartIncluding/versionEndExcluding.
+        /// </summary>
+        private async Task<List<CveDto>> SearchByVirtualCpeAsync(string baseCpe, string? version)
+        {
+            // Build: cpe:2.3:a:google:chrome:108.0.5359:*:*:*:*:*:*:*
+            string virtualCpe = string.IsNullOrEmpty(version) || version == "*"
+                ? $"{baseCpe}:*:*:*:*:*:*:*:*"
+                : $"{baseCpe}:{version}:*:*:*:*:*:*:*";
+
+            string url = $"https://services.nvd.nist.gov/rest/json/cves/2.0" +
+                         $"?virtualMatchString={Uri.EscapeDataString(virtualCpe)}" +
+                         $"&resultsPerPage={MaxResults}";
+
+            _logger.LogInformation("[NVD] virtualMatchString URL: {Url}", url);
+
+            string json = await FetchAsync(url);
+            return ParseCves(json);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  VERSION FILTER — post-fetch safety net
+        // ═══════════════════════════════════════════════════════════════
+
+        private List<CveDto> FilterByVersion(List<CveDto> cves, string normVersion)
+        {
+            if (string.IsNullOrEmpty(normVersion) || normVersion == "*")
+                return cves;
+
+            var variants = BuildVersionVariants(normVersion);
+
+            return cves.Where(cve =>
+            {
+                // Check description
+                if (!string.IsNullOrEmpty(cve.Description))
+                    foreach (var v in variants)
+                        if (cve.Description.Contains(v, StringComparison.OrdinalIgnoreCase))
+                            return true;
+
+                // Check extracted CPE strings
+                foreach (var cpe in cve.AffectedCpes)
+                    foreach (var v in variants)
+                        if (cpe.Contains(v, StringComparison.OrdinalIgnoreCase))
+                            return true;
+
+                return false;
+            }).ToList();
+        }
+
+        private List<string> BuildVersionVariants(string version)
+        {
+            var variants = new List<string> { version };
+            var parts = version.Split('.');
+
+            if (parts.Length >= 2) variants.Add($"{parts[0]}.{parts[1]}");
+            if (parts.Length >= 1) variants.Add(parts[0]);
+
+            return variants;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  UPDATED CPE RESOLUTION — pass version separately for injection
+        // ═══════════════════════════════════════════════════════════════
+
         private async Task<string?> ResolveCpeAsync(
             string softwareName,
             string publisher,
             string version)
         {
-            // Build a search keyword: "chrome google 120" or just "chrome 120"
+            // ✅ Search WITHOUT version in keyword — version goes into CPE after
             string keyword = string.IsNullOrEmpty(publisher)
-                ? $"{softwareName} {version}".Trim()
+                ? softwareName.Trim()
                 : $"{softwareName} {publisher}".Trim();
 
             string url = $"https://services.nvd.nist.gov/rest/json/cpes/2.0" +
@@ -119,7 +260,6 @@ namespace SystemMonitorAPI.Model
                 if (!doc.RootElement.TryGetProperty("products", out var products))
                     return null;
 
-                // Pick the CPE whose title best matches our software name
                 string? bestCpe = null;
                 int bestScore = 0;
 
@@ -132,7 +272,6 @@ namespace SystemMonitorAPI.Model
 
                     if (string.IsNullOrEmpty(cpeName)) continue;
 
-                    // Score by how many words in the software name appear in the CPE string
                     int score = ScoreCpeMatch(cpeName, softwareName, publisher);
 
                     if (score > bestScore)
@@ -144,8 +283,7 @@ namespace SystemMonitorAPI.Model
 
                 if (bestCpe == null) return null;
 
-                // Inject the real version into the resolved CPE
-                // CPE format: cpe:2.3:a:{vendor}:{product}:{version}:...
+                // ✅ Inject EXACT version into the CPE string
                 return InjectVersion(bestCpe, version);
             }
             catch (Exception ex)
@@ -154,6 +292,10 @@ namespace SystemMonitorAPI.Model
                 return null;
             }
         }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  STRATEGY 1 — Discover the correct CPE from NVD's dictionary
+        // ═══════════════════════════════════════════════════════════════
 
         /// <summary>
         /// Scores how well a CPE string matches the software we're looking for.
@@ -289,13 +431,11 @@ namespace SystemMonitorAPI.Model
         private List<CveDto> ParseCves(string json)
         {
             var list = new List<CveDto>();
-
             if (string.IsNullOrWhiteSpace(json) || json == "{}") return list;
 
             try
             {
                 using var doc = JsonDocument.Parse(json);
-
                 if (!doc.RootElement.TryGetProperty("vulnerabilities", out var vulns))
                     return list;
 
@@ -305,16 +445,14 @@ namespace SystemMonitorAPI.Model
 
                     var dto = new CveDto
                     {
-                        Id = cve.TryGetProperty("id", out var id)
-                                ? id.GetString() : null,
-
+                        Id = cve.TryGetProperty("id", out var id) ? id.GetString() : null,
                         Description = ExtractEnglishDescription(cve),
+                        Published = cve.TryGetProperty("published", out var pub) ? pub.GetDateTime() : null,
 
-                        Published = cve.TryGetProperty("published", out var pub)
-                                ? pub.GetDateTime() : null
+                        // ✅ Extract all CPE strings from configurations
+                        AffectedCpes = ExtractCpeStrings(cve),
                     };
 
-                    // CVSS: try V3.1 → V3.0 → V2.0
                     if (cve.TryGetProperty("metrics", out var metrics))
                         ExtractBestCvss(metrics, dto);
 
@@ -328,6 +466,40 @@ namespace SystemMonitorAPI.Model
             }
 
             return list;
+        }
+
+        // ✅ NEW — pulls all cpe23Uri / cpeName strings from configurations
+        private List<string> ExtractCpeStrings(JsonElement cve)
+        {
+            var cpes = new List<string>();
+
+            try
+            {
+                if (!cve.TryGetProperty("configurations", out var configs)) return cpes;
+
+                foreach (var config in configs.EnumerateArray())
+                {
+                    if (!config.TryGetProperty("nodes", out var nodes)) continue;
+
+                    foreach (var node in nodes.EnumerateArray())
+                    {
+                        if (!node.TryGetProperty("cpeMatch", out var matches)) continue;
+
+                        foreach (var match in matches.EnumerateArray())
+                        {
+                            // Try both field names NVD uses
+                            if (match.TryGetProperty("criteria", out var c)) cpes.Add(c.GetString() ?? "");
+                            if (match.TryGetProperty("cpe23Uri", out var u)) cpes.Add(u.GetString() ?? "");
+                            if (match.TryGetProperty("versionStartIncluding", out var vs)) cpes.Add(vs.GetString() ?? "");
+                            if (match.TryGetProperty("versionEndIncluding", out var ve)) cpes.Add(ve.GetString() ?? "");
+                            if (match.TryGetProperty("versionEndExcluding", out var vx)) cpes.Add(vx.GetString() ?? "");
+                        }
+                    }
+                }
+            }
+            catch { /* safe to ignore */ }
+
+            return cpes.Where(s => !string.IsNullOrEmpty(s)).ToList();
         }
 
         private string? ExtractEnglishDescription(JsonElement cve)
@@ -444,5 +616,14 @@ namespace SystemMonitorAPI.Model
         public double? Score { get; set; }
         public DateTime? Published { get; set; }
         public string Source { get; set; }
+
+        // ✅ NEW — CPE strings extracted during parse for version filtering
+        public List<string> AffectedCpes { get; set; } = new();
+
+        /// <summary>All version strings from the CVE's "affected" block.</summary>
+        public List<string> AffectedVersions { get; set; } = new();
+
+        /// <summary>Pre-computed index keys ("vendor::product") for fast lookup.</summary>
+        public List<string> IndexKeys { get; set; } = new();
     }
 }

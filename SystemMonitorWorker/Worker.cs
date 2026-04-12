@@ -1746,64 +1746,85 @@ Start-ScheduledTask -TaskName $taskName
         [SupportedOSPlatform("windows")]
         private List<SoftwareInfo> GetInstalledSoftware(DeviceInfo device)
         {
-            var softwareList = new List<SoftwareInfo>();
+            var softwareMap = new Dictionary<string, SoftwareInfo>(StringComparer.OrdinalIgnoreCase);
 
-            // Define registry paths for installed software
+            var registryRoots = new[]
+            {
+        Microsoft.Win32.Registry.LocalMachine,
+        Microsoft.Win32.Registry.CurrentUser
+    };
+
             var registryPaths = new[]
             {
-                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", // System-wide installations
-                @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" // 32-bit applications on 64-bit systems
-            };
+        @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    };
 
             try
             {
-                // Check both LocalMachine and CurrentUser hives
-                foreach (var root in new[] { Microsoft.Win32.Registry.LocalMachine, Microsoft.Win32.Registry.CurrentUser })
+                foreach (var root in registryRoots)
                 {
                     foreach (var path in registryPaths)
                     {
-                        using (var key = root.OpenSubKey(path))
-                        {
-                            if (key != null)
-                            {
-                                foreach (string subkeyName in key.GetSubKeyNames())
-                                {
-                                    using (var subKey = key.OpenSubKey(subkeyName))
-                                    {
-                                        var displayName = subKey?.GetValue("DisplayName");
-                                        var displayVersion = subKey?.GetValue("DisplayVersion");
-                                        var publisher = subKey?.GetValue("Publisher");
-                                        var uninstallString = (subKey?.GetValue("QuietUninstallString") == null) ? subKey?.GetValue("UninstallString") : subKey?.GetValue("QuietUninstallString");
+                        using var key = root.OpenSubKey(path);
+                        if (key == null) continue;
 
-                                        if (displayName != null)
-                                        {
-                                            softwareList.Add(new SoftwareInfo
-                                            {
-                                                SoftwareName = displayName.ToString(),
-                                                Version = displayVersion?.ToString() ?? "Unknown",
-                                                Publisher = publisher?.ToString() ?? "Unknown",
-                                                Hostname = device.Hostname,
-                                                Device = device,
-                                                UninstallString = uninstallString?.ToString().Replace("/I", "/X") ?? "Unknown"
-                                            });
-                                        }
-                                    }
+                        foreach (var subkeyName in key.GetSubKeyNames())
+                        {
+                            using var subKey = key.OpenSubKey(subkeyName);
+                            if (subKey == null) continue;
+
+                            var name = subKey.GetValue("DisplayName")?.ToString()?.Trim();
+                            if (string.IsNullOrEmpty(name)) continue;
+
+                            var version = subKey.GetValue("DisplayVersion")?.ToString()?.Trim() ?? "Unknown";
+                            var publisher = subKey.GetValue("Publisher")?.ToString()?.Trim() ?? "Unknown";
+
+                            var uninstall = subKey.GetValue("QuietUninstallString") ??
+                                            subKey.GetValue("UninstallString");
+
+                            var uninstallString = uninstall?.ToString()?.Replace("/I", "/X") ?? "Unknown";
+
+                            // 🔹 Generate strong dedupe key (normalized)
+                            var keyId = $"{name.ToLowerInvariant()}|{version.ToLowerInvariant()}";
+
+                            // 🔹 Compute system score
+                            int score = CalculateSystemScore(subKey, publisher, uninstallString);
+
+                            if (softwareMap.TryGetValue(keyId, out var existing))
+                            {
+                                // 🔹 Keep better version (higher score + better metadata)
+                                if (score > existing.SystemScore ||
+                                    (existing.Version == "Unknown" && version != "Unknown"))
+                                {
+                                    existing.SystemScore = score;
+                                    existing.UninstallString = uninstallString;
+                                    existing.Publisher = publisher;
                                 }
+                            }
+                            else
+                            {
+                                softwareMap[keyId] = new SoftwareInfo
+                                {
+                                    SoftwareName = name,
+                                    Version = version,
+                                    Publisher = publisher,
+                                    Hostname = device.Hostname,
+                                    Device = device,
+                                    UninstallString = uninstallString,
+                                    SystemScore = score
+                                };
                             }
                         }
                     }
                 }
-                softwareList = softwareList
-            .GroupBy(software => new { software.SoftwareName, software.Version })
-            .Select(group => group.First())
-            .ToList();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error collecting installed software");
             }
 
-            return softwareList;
+            return softwareMap.Values.ToList();
         }
 
 
@@ -2048,6 +2069,57 @@ Start-ScheduledTask -TaskName $taskName
         }
         #endregion
 
+        #region extra function
+        private int CalculateSystemScore(Microsoft.Win32.RegistryKey subKey, string publisher, string uninstallString)
+        {
+            int score = 0;
+
+            var systemComponent = subKey.GetValue("SystemComponent");
+            var releaseType = subKey.GetValue("ReleaseType")?.ToString();
+            var parentKey = subKey.GetValue("ParentKeyName");
+            var installLocation = subKey.GetValue("InstallLocation")?.ToString();
+
+            // 🔹 Strong indicators
+            if (systemComponent?.ToString() == "1")
+                score += 50;
+
+            if (!string.IsNullOrEmpty(releaseType))
+                score += 40;
+
+            if (parentKey != null)
+                score += 20;
+
+            // 🔹 Publisher heuristic
+            if (!string.IsNullOrEmpty(publisher))
+            {
+                if (publisher.Contains("Microsoft", StringComparison.OrdinalIgnoreCase))
+                    score += 10;
+
+                if (publisher.Contains("Intel", StringComparison.OrdinalIgnoreCase) ||
+                    publisher.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) ||
+                    publisher.Contains("AMD", StringComparison.OrdinalIgnoreCase))
+                    score += 15; // drivers
+            }
+
+            // 🔹 Install location heuristic
+            if (!string.IsNullOrEmpty(installLocation))
+            {
+                if (installLocation.StartsWith(@"C:\Windows", StringComparison.OrdinalIgnoreCase))
+                    score += 20;
+
+                if (installLocation.Contains("WindowsApps"))
+                    score += 15;
+            }
+
+            // 🔹 Missing uninstall → likely system
+            if (string.IsNullOrEmpty(uninstallString) || uninstallString == "Unknown")
+                score += 10;
+
+            // 🔹 Clamp score
+            return Math.Min(score, 100);
+        }
+        #endregion
+
         #region DeleteFile
         private void DeleteFiles(string path)
         {
@@ -2213,6 +2285,10 @@ Start-ScheduledTask -TaskName $taskName
         public string Publisher { get; set; }
         public string UninstallString { get; set; }
         public DeviceInfo Device { get; set; } // Add the Device field here
+
+        // New fields
+        public int SystemScore { get; set; }   // 0–100
+        public bool IsSystemSoftware => SystemScore >= 50;
     }
 
     public class MonitorInfo

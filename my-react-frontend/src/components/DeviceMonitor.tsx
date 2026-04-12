@@ -243,13 +243,13 @@ const DeviceMonitor = () => {
                     `${APP_CONSTANTS.API_BASE_URL}/api/devices/${hostname}/battery`
                 );
 
-                setBatteryInfo(batteryRes.data?.$values || batteryRes.data || []);
+                setBatteryInfo(normalizeArray(batteryRes.data));
 
                 setDeviceData({
                     systemDetail: systemData.data.systemDetail || {},
                     status: systemData.data.status,
                     lastUpdated: systemData.data.lastUpdated,
-                    otherDetails: otherData?.data?.$values || [],
+                    otherDetails: normalizeArray(otherData?.data),
                 });
 
             } catch (error) {
@@ -303,6 +303,13 @@ const DeviceMonitor = () => {
 
         return () => clearInterval(interval);
     }, [activeTab, logs]);
+
+    const normalizeArray = (data: any) => {
+        if (!data) return [];
+        if (Array.isArray(data)) return data;
+        if (Array.isArray(data.$values)) return data.$values;
+        return [];
+    };
 
     //   const fetchLogs = async () => {
     //     setLogsLoading(true);

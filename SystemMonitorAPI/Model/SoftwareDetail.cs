@@ -23,8 +23,19 @@ namespace SystemMonitorAPI.Model
         [Column("UNINSTALLSTRING")]
         public string? UninstallString { get; set; }
 
+        [Column("FIRST_SEEN")]
+        public DateTime? FirstSeen { get; set; }
+
+        [Column("SYSTEM_SCORE")]
+        public int SystemScore { get; set; }
+
+        [NotMapped]
+        public bool IsSystemSoftware => SystemScore >= 50;
+
         // 🔥 ADD THIS
         [InverseProperty("SoftwareDetail")]
         public virtual ICollection<Vulnerability> Vulnerabilities { get; set; } = new List<Vulnerability>();
+
+
     }
 }

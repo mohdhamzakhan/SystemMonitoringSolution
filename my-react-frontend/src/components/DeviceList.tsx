@@ -41,14 +41,15 @@ const DeviceList: React.FC = () => {
   useEffect(() => {
     axios
       .get(APP_CONSTANTS.API_BASE_URL + "/api/devices")
-      .then((response) => {
-        if (response.data && Array.isArray(response.data.$values)) {
-          setDevices(response.data.$values as Device[]);
-        } else {
-          setDevices([]);
-        }
-        setLoading(false);
-      })
+        .then((response) => {
+            const data = response.data;
+            const devicesArray = Array.isArray(data)
+                ? data
+                : data?.$values ?? [];
+
+            setDevices(devicesArray);
+            setLoading(false);
+        })
       .catch(() => {
         setError("Failed to fetch device data");
         setLoading(false);

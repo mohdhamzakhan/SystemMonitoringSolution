@@ -162,6 +162,9 @@ namespace SystemMonitorAPI.Model
         public string Version { get; set; }
         public string Publisher { get; set; }
         public string UninstallString { get; set; }
+        public int SystemScore { get; set; }
+
+        public bool IsSystemSoftware => SystemScore >= 50;
     }
 
     public class AntivirusDetaildto

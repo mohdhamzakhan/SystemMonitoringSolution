@@ -88,7 +88,10 @@ const SoftwareDashboard = () => {
     useAuth();
 
     const [softwareData, setSoftwareData] = useState<FlattenedSoftware[]>([]);
-    const [searchTerm, setSearchTerm] = useState("");
+    const [searchTerm, setSearchTerm] = useState(() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.get("name") || "";
+    });
     const [selectedKey, setSelectedKey] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -97,6 +100,14 @@ const SoftwareDashboard = () => {
     const [expandedSeverity, setExpandedSeverity] = useState<string | null>(null);
 
     const rightPanelRef = useRef<HTMLDivElement | null>(null);
+
+    /* ================= EFFECT: UPDATE URL ON SELECTION ================= */
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const name = params.get("name") || "";
+        setSearchTerm(name);
+    }, [window.location.search]);
 
     /* ================= FETCH SOFTWARE ================= */
 
@@ -108,16 +119,29 @@ const SoftwareDashboard = () => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
 
-                const flattened: FlattenedSoftware[] = data.$values.flatMap(
-                    (device: Device) =>
-                        device.softwareDetails.$values.map((s: SoftwareDetails) => ({
-                            hostname: device.hostname ?? null,
-                            username: device.username ?? null,
-                            softwareName: s.softwareName,
-                            version: s.version,
-                            publisher: s.publisher,
-                        }))
-                );
+                // ✅ Handle all possible response shapes
+                const devices: Device[] = Array.isArray(data)
+                    ? data
+                    : Array.isArray(data.$values)
+                        ? data.$values
+                        : [];
+
+                const flattened: FlattenedSoftware[] = devices.flatMap((device: Device) => {
+                    // ✅ Handle softwareDetails being array or $values wrapped
+                    const softwares: SoftwareDetails[] = Array.isArray(device.softwareDetails)
+                        ? device.softwareDetails
+                        : Array.isArray(device.softwareDetails?.$values)
+                            ? device.softwareDetails.$values
+                            : [];
+
+                    return softwares.map((s: SoftwareDetails) => ({
+                        hostname: device.hostname ?? null,
+                        username: device.username ?? null,
+                        softwareName: s.softwareName,
+                        version: s.version,
+                        publisher: s.publisher,
+                    }));
+                });
 
                 setSoftwareData(flattened);
             } catch (e: any) {
