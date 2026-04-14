@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Oracle.EntityFrameworkCore.Metadata;
 using SystemMonitorAPI.Model;
@@ -11,9 +12,11 @@ using SystemMonitorAPI.Model;
 namespace SystemMonitorAPI.Migrations
 {
     [DbContext(typeof(SystemMonitorContext))]
-    partial class SystemMonitorContextModelSnapshot : ModelSnapshot
+    [Migration("20260412080003_switchs")]
+    partial class switchs
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -201,26 +204,6 @@ namespace SystemMonitorAPI.Migrations
                         .HasColumnType("NVARCHAR2(2000)")
                         .HasColumnName("AGENTVERSION");
 
-                    b.Property<string>("ConnectedPort")
-                        .HasColumnType("NVARCHAR2(2000)")
-                        .HasColumnName("CONNECTED_PORT");
-
-                    b.Property<int?>("ConnectedSwitchId")
-                        .HasColumnType("NUMBER(10)")
-                        .HasColumnName("CONNECTED_SWITCH_ID");
-
-                    b.Property<string>("ConnectedSwitchIp")
-                        .HasColumnType("NVARCHAR2(2000)")
-                        .HasColumnName("CONNECTED_SWITCH_IP");
-
-                    b.Property<string>("ConnectedSwitchName")
-                        .HasColumnType("NVARCHAR2(2000)")
-                        .HasColumnName("CONNECTED_SWITCH_NAME");
-
-                    b.Property<string>("ConnectionProtocol")
-                        .HasColumnType("NVARCHAR2(2000)")
-                        .HasColumnName("CONNECTION_PROTOCOL");
-
                     b.Property<string>("Department")
                         .HasColumnType("NVARCHAR2(2000)")
                         .HasColumnName("DEPARTMENT");
@@ -228,10 +211,6 @@ namespace SystemMonitorAPI.Migrations
                     b.Property<DateTime>("LastUpdated")
                         .HasColumnType("TIMESTAMP(7)")
                         .HasColumnName("LASTUPDATED");
-
-                    b.Property<DateTime?>("PortLastSeen")
-                        .HasColumnType("TIMESTAMP(7)")
-                        .HasColumnName("PORT_LAST_SEEN");
 
                     b.Property<string>("Status")
                         .HasColumnType("NVARCHAR2(2000)")
@@ -242,8 +221,6 @@ namespace SystemMonitorAPI.Migrations
                         .HasColumnName("USERNAME");
 
                     b.HasKey("Hostname");
-
-                    b.HasIndex("ConnectedSwitchId");
 
                     b.ToTable("SMM_DEVICE");
                 });
@@ -1119,15 +1096,6 @@ namespace SystemMonitorAPI.Migrations
                         .HasConstraintName("FK_SMM_BATTERYINFO_SMM_DEVICE_HOSTNAME");
 
                     b.Navigation("Device");
-                });
-
-            modelBuilder.Entity("SystemMonitorAPI.Model.Device", b =>
-                {
-                    b.HasOne("SystemMonitorAPI.Models.SmmSwitch", "ConnectedSwitch")
-                        .WithMany()
-                        .HasForeignKey("ConnectedSwitchId");
-
-                    b.Navigation("ConnectedSwitch");
                 });
 
             modelBuilder.Entity("SystemMonitorAPI.Model.DiskDetails", b =>

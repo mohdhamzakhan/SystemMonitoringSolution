@@ -33,6 +33,11 @@ const Navbar = () => {
                             </a>
                         </li>
                         <li>
+                            <a href="/NetworkDashboard" className="hover:text-gray-300">
+                                Network
+                            </a>
+                        </li>
+                        <li>
                             <a href="/warranty-management" className="hover:text-gray-300">
                                 Warranty Management
                             </a>

@@ -112,7 +112,7 @@ namespace SystemMonitorAPI.Model
                 BuildIndex();
                 await File.WriteAllTextAsync(
                     _stampPath,
-                    DateTime.UtcNow.ToString("O"));
+                    DateTime.Now.ToString("O"));
             }
             finally
             {
@@ -138,7 +138,7 @@ namespace SystemMonitorAPI.Model
                     await ExtractZipAsync();
                     await File.WriteAllTextAsync(
                         _stampPath,
-                        DateTime.UtcNow.ToString("O"));
+                        DateTime.Now.ToString("O"));
                 }
 
                 if (_index is null)
@@ -165,7 +165,7 @@ namespace SystemMonitorAPI.Model
             var raw = File.ReadAllText(_stampPath).Trim();
             if (!DateTime.TryParse(raw, out var stamp)) return true;
 
-            return DateTime.UtcNow - stamp > RefreshInterval;
+            return DateTime.Now - stamp > RefreshInterval;
         }
 
         // ── Download ─────────────────────────────────────────────

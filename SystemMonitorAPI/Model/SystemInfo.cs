@@ -37,7 +37,7 @@ namespace SystemMonitorAPI.Model
         [Column("PARAMETERS")]
         public string? Parameters { get; set; }
         [Column("CREATEDDATE")]
-        public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
+        public DateTime CreatedDate { get; set; } = DateTime.Now;
         [Column("ISACTIVE")]
         public bool IsActive { get; set; } = true;
         [Column("ISLOCAL")]

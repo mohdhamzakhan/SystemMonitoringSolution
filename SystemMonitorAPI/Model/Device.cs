@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using SystemMonitorAPI.Models;
 
 namespace SystemMonitorAPI.Model
 {
@@ -19,6 +20,29 @@ namespace SystemMonitorAPI.Model
         public string? Department { get; set; }
         [Column("AGENTVERSION")]
         public string? AgentVersion { get; set; }
+
+        // ── NEW: Switch port location ─────────────────────────────────────────
+        [Column("CONNECTED_SWITCH_ID")]
+        public int? ConnectedSwitchId { get; set; }
+
+        [Column("CONNECTED_SWITCH_NAME")]
+        public string? ConnectedSwitchName { get; set; }
+
+        [Column("CONNECTED_SWITCH_IP")]
+        public string? ConnectedSwitchIp { get; set; }
+
+        [Column("CONNECTED_PORT")]
+        public string? ConnectedPort { get; set; }
+
+        [Column("CONNECTION_PROTOCOL")]
+        public string? ConnectionProtocol { get; set; }
+
+        [Column("PORT_LAST_SEEN")]
+        public DateTime? PortLastSeen { get; set; }
+
+        // Navigation property to the switch (optional, for joins)
+        [ForeignKey("ConnectedSwitchId")]
+        public virtual SmmSwitch? ConnectedSwitch { get; set; }
 
         public virtual ICollection<SystemDetail> SystemDetails { get; set; }
         public virtual ICollection<SoftwareDetail> SoftwareDetails { get; set; }

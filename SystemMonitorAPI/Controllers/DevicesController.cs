@@ -821,19 +821,28 @@ namespace SystemMonitorAPI.Controllers
                 .FirstOrDefaultAsync();
 
             if (device == null)
-            {
                 return NotFound();
-            }
 
-            var networkDetails = device.NetworkDetails.Select(n => new
+            var response = new
             {
-                n.IPAddress,
-                n.MACAddress,
-                n.InterfaceName,
-                n.NetworkType
-            }).ToList();
+                // ✅ Device-level (switch info)
+                connectedSwitchName = device.ConnectedSwitchName,
+                connectedSwitchIp = device.ConnectedSwitchIp,
+                connectedPort = device.ConnectedPort,
+                connectionProtocol = device.ConnectionProtocol,
+                portLastSeen = device.PortLastSeen,
 
-            return Ok(networkDetails);
+                // ✅ Network interfaces
+                networkDetails = device.NetworkDetails.Select(n => new
+                {
+                    ipAddress = n.IPAddress,
+                    macAddress = n.MACAddress,
+                    interfaceName = n.InterfaceName,
+                    networkType = n.NetworkType
+                }).ToList()
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("{hostname}/monitor")]

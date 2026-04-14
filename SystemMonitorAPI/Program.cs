@@ -1,11 +1,14 @@
 ﻿using Hangfire;
 using Hangfire.Oracle.Core;
 using Microsoft.EntityFrameworkCore;
+using Quartz;
 using System.Data;
 using System.Text.Json.Serialization;
+using SystemMonitorAPI.Configuration;
 using SystemMonitorAPI.Filters;
 using SystemMonitorAPI.Jobs;
 using SystemMonitorAPI.Model;
+using SystemMonitorAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,11 +26,20 @@ builder.Services.AddControllers()
 var connectionString = builder.Configuration
     .GetConnectionString("SystemMonitorDefaultConnection");
 
-builder.Services.AddDbContext<SystemMonitorContext>(options =>
+builder.Services.AddDbContext<SystemMonitorContext>(
+    options =>
+    {
+        options.UseOracle(connectionString,
+            o => o.UseOracleSQLCompatibility(OracleSQLCompatibility.DatabaseVersion19));
+        options.UseLazyLoadingProxies();
+    },
+    contextLifetime: ServiceLifetime.Scoped,
+    optionsLifetime: ServiceLifetime.Singleton);
+
+builder.Services.AddDbContextFactory<SystemMonitorContext>(options =>
 {
     options.UseOracle(connectionString,
         o => o.UseOracleSQLCompatibility(OracleSQLCompatibility.DatabaseVersion19));
-    options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
     options.UseLazyLoadingProxies();
 });
 
@@ -66,6 +78,48 @@ builder.Services.AddHttpClient("cve-local", c =>
 {
     c.Timeout = TimeSpan.FromMinutes(30);
 });
+
+#region switch
+// ── 2. Network scan configuration ─────────────────────────────────────────────
+var scanConfig = builder.Configuration
+    .GetSection("NetworkScan")
+    .Get<NetworkScanConfig>();
+
+builder.Services.Configure<NetworkScanConfig>(
+    builder.Configuration.GetSection("NetworkScan"));
+
+// ── 3. SNMP + scan services ───────────────────────────────────────────────────
+builder.Services.AddScoped<ISnmpV3Service, SnmpV3Service>();
+builder.Services.AddScoped<INetworkScanService, NetworkScanService>();
+builder.Services.AddScoped<IDevicePortResolutionService, DevicePortResolutionService>();
+
+// ── 4. Quartz scheduled scanner ───────────────────────────────────────────────
+builder.Services.AddQuartz(q =>
+{
+    q.UseMicrosoftDependencyInjectionJobFactory();
+
+    var jobKey = new JobKey("NetworkScanJob");
+
+    q.AddJob<NetworkScanJob>(opts => opts.WithIdentity(jobKey));
+
+    q.AddTrigger(opts => opts
+        .ForJob(jobKey)
+        .WithIdentity("NetworkScanTrigger")
+        .WithSimpleSchedule(s => s
+            .WithIntervalInMinutes(
+                builder.Configuration.GetValue<int>("NetworkScan:ScanIntervalMinutes"))
+            .RepeatForever())
+        .StartAt(DateTimeOffset.Now.AddMinutes(2))
+    );
+});
+
+// ── 5. CORS (adjust origins for production) ──────────────────────────────────
+builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
+    policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+
+
+
+#endregion
 
 
 
@@ -139,5 +193,6 @@ app.Lifetime.ApplicationStarted.Register(() =>
             TimeZone = TimeZoneInfo.Local
         });
 });
+
 
 app.Run();

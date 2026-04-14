@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { AlertCircle, Trash2, RefreshCw, Save, Edit2, X, Plus, Power, PowerOff } from "lucide-react";
 import { APP_CONSTANTS } from "../store";
-
-// Mock components - replace with your actual imports
-const Navbar = () => <div className="bg-indigo-600 text-white p-4 text-xl font-bold">System Updates Manager</div>;
+import Navbar from "./Navbar";
 const useAuth = () => { };
 
 const UpdateInfoForm = () => {

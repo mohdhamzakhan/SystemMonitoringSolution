@@ -11,7 +11,9 @@ import {
     Lock,
     Unlock,
     Eye,
+    WifiOff,
     EyeOff,
+    Globe,
     Trash2,
     LoaderCircle,
     Key,
@@ -86,6 +88,7 @@ interface DeviceData {
     systemDetail: SystemDetail;
     status: string;
     lastUpdated: string;
+    username: string;
     otherDetails: OtherDetails[];
 }
 // Custom Card Component
@@ -217,6 +220,7 @@ const DeviceMonitor = () => {
                     otherData = await axios.get(
                         `${APP_CONSTANTS.API_BASE_URL}/api/devices/${hostname}/network`
                     );
+                    console.log("Network", otherData)
                 } else if (activeTab === "security") {
                     otherData = await axios.get(
                         `${APP_CONSTANTS.API_BASE_URL}/api/devices/${hostname}/security`
@@ -249,8 +253,19 @@ const DeviceMonitor = () => {
                     systemDetail: systemData.data.systemDetail || {},
                     status: systemData.data.status,
                     lastUpdated: systemData.data.lastUpdated,
-                    otherDetails: normalizeArray(otherData?.data),
+                    username: systemData.data.username,
+
+                    // ✅ IMPORTANT: keep switch info from API
+                    ...(activeTab === "network" ? otherData?.data : {}),
+
+                    // ✅ IMPORTANT: map correct data
+                    otherDetails:
+                        activeTab === "network"
+                            ? otherData?.data?.networkDetails || []
+                            : normalizeArray(otherData?.data),
                 });
+
+                console.log("Data From API :", deviceData)
 
             } catch (error) {
                 console.error("Error fetching data", error);
@@ -721,16 +736,51 @@ const DeviceMonitor = () => {
                     ">
                             {/* Hostname */}
                             <div className="p-6 flex items-center justify-between">
-                                <div>
-                                    <p className="text-xs uppercase tracking-wide text-gray-500">
-                                        Hostname
-                                    </p>
-                                    <p className="mt-1 text-lg font-semibold text-gray-900">
-                                        {deviceData.systemDetail.hostname}
-                                    </p>
-                                    <p className="text-sm text-gray-600">
-                                        {deviceData.systemDetail.domain}
-                                    </p>
+                                <div className="space-y-3">
+
+                                    {/* Hostname */}
+                                    <div className="flex items-start gap-3">
+                                        <div className="p-0 rounded-lg bg-blue-50">
+                                            <Monitor className="h-4 w-4 text-blue-600" />
+                                        </div>
+                                        <div>
+
+                                            <p className="text-lg font-semibold text-gray-900">
+                                                {deviceData.systemDetail.hostname}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Domain */}
+                                    <div className="flex items-start gap-3">
+                                        <div className="p-0 rounded-lg bg-purple-50">
+                                            <Globe className="h-4 w-4 text-purple-600" />
+                                        </div>
+                                        <div>
+
+                                            <p className="text-sm font-medium text-gray-700">
+                                                {deviceData.systemDetail.domain || "—"}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* User */}
+                                    <div className="flex items-start gap-3">
+                                        <div className="p-0 rounded-lg bg-green-50">
+                                            <User className="h-4 w-4 text-green-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-medium text-gray-700">
+                                                {deviceData.username
+                                                    ?.replace(/[._-]/g, " ")
+                                                    .split(" ")
+                                                    .map(word =>
+                                                        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                                                    )
+                                                    .join(" ") || "—"}
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="p-2 rounded-lg bg-blue-50">
@@ -739,55 +789,94 @@ const DeviceMonitor = () => {
                             </div>
 
                             {/* Status */}
-                            <div className="p-6 flex items-center justify-between">
-                                <div>
-                                    <p className="text-xs uppercase tracking-wide text-gray-500">
-                                        Status
-                                    </p>
+                            <div className="p-6 flex items-center justify-between rounded-xl border bg-gradient-to-br from-white to-gray-50 shadow-sm">
 
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <span
-                                            className={`
-                                inline-flex items-center gap-1.5 px-2.5 py-1
-                                rounded-md text-xs font-medium
-                                ${deviceData.status === "Connected"
-                                                    ? "bg-green-50 text-green-700"
-                                                    : "bg-gray-100 text-gray-600"
-                                                }
-                                `}
-                                        >
+                                {/* LEFT */}
+                                <div className="flex items-center gap-4">
+
+                                    {/* Icon */}
+                                    <div
+                                        className={`p-2 rounded-lg ${deviceData.status === "Connected"
+                                                ? "bg-green-50"
+                                                : "bg-gray-100"
+                                            }`}
+                                    >
+                                        {deviceData.status === "Connected" ? (
+                                            <Activity className="h-5 w-5 text-green-600" />
+                                        ) : (
+                                            <WifiOff className="h-5 w-5 text-gray-500" />
+                                        )}
+                                    </div>
+
+                                    {/* Text */}
+                                    <div>
+                                        <p className="text-xs uppercase tracking-wide text-gray-500">
+                                            Status
+                                        </p>
+
+                                        <div className="mt-1 flex items-center gap-2">
                                             <span
-                                                className={`h-2 w-2 rounded-full ${deviceData.status === "Connected"
-                                                        ? "bg-green-500"
-                                                        : "bg-gray-400"
-                                                    }`}
-                                            />
-                                            {deviceData.status}
-                                        </span>
+                                                className={`
+                        inline-flex items-center gap-1.5 px-2.5 py-1
+                        rounded-full text-xs font-medium
+                        ${deviceData.status === "Connected"
+                                                        ? "bg-green-100 text-green-700"
+                                                        : "bg-gray-200 text-gray-600"
+                                                    }
+                    `}
+                                            >
+                                                <span
+                                                    className={`h-2 w-2 rounded-full ${deviceData.status === "Connected"
+                                                            ? "bg-green-500 animate-pulse"
+                                                            : "bg-gray-400"
+                                                        }`}
+                                                />
+                                                {deviceData.status}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <span className="text-sm text-gray-500">
-                                    {deviceData.status === "Connected" ? "Active" : "Inactive"}
-                                </span>
+                                {/* RIGHT */}
+                                <div className="text-right">
+                                    <p
+                                        className={`text-sm font-semibold ${deviceData.status === "Connected"
+                                                ? "text-green-600"
+                                                : "text-gray-500"
+                                            }`}
+                                    >
+                                        {deviceData.status === "Connected" ? "Active" : "Inactive"}
+                                    </p>
+
+                                    <p className="text-xs text-gray-400">
+                                        {deviceData.status === "Connected"
+                                            ? "System is reachable"
+                                            : "No recent response"}
+                                    </p>
+                                </div>
                             </div>
 
                             {/* Last Updated */}
-                            <div className="p-6 flex items-center justify-between">
+                            <div className="p-6 flex items-center justify-between border rounded-lg bg-white">
+
+                                {/* LEFT */}
                                 <div>
                                     <p className="text-xs uppercase tracking-wide text-gray-500">
                                         Last Updated
                                     </p>
+
                                     <p className="mt-1 text-lg font-semibold text-gray-900">
                                         {new Date(deviceData.lastUpdated).toLocaleTimeString()}
                                     </p>
-                                    <p className="text-sm text-gray-600">
+
+                                    <p className="text-sm text-gray-500">
                                         {new Date(deviceData.lastUpdated).toLocaleDateString()}
                                     </p>
                                 </div>
 
-                                <div className="p-2 rounded-lg bg-gray-100">
-                                    <Clock className="h-6 w-6 text-gray-600" />
+                                {/* RIGHT ICON */}
+                                <div className="p-2 rounded-md bg-gray-100">
+                                    <Clock className="h-5 w-5 text-gray-600" />
                                 </div>
                             </div>
 
@@ -802,10 +891,10 @@ const DeviceMonitor = () => {
 
                                             <p
                                                 className={`mt-1 text-lg font-semibold ${batteryHealth >= 75
-                                                        ? "text-green-600"
-                                                        : batteryHealth >= 50
-                                                            ? "text-yellow-600"
-                                                            : "text-red-600"
+                                                    ? "text-green-600"
+                                                    : batteryHealth >= 50
+                                                        ? "text-yellow-600"
+                                                        : "text-red-600"
                                                     }`}
                                             >
                                                 {batteryHealth}%
@@ -836,10 +925,10 @@ const DeviceMonitor = () => {
                                             <div className="mt-2 h-2 w-36 rounded-full bg-gray-200">
                                                 <div
                                                     className={`h-2 rounded-full ${battery.estimatedChargeRemaining >= 75
-                                                            ? "bg-green-500"
-                                                            : battery.estimatedChargeRemaining >= 50
-                                                                ? "bg-yellow-500"
-                                                                : "bg-red-500"
+                                                        ? "bg-green-500"
+                                                        : battery.estimatedChargeRemaining >= 50
+                                                            ? "bg-yellow-500"
+                                                            : "bg-red-500"
                                                         }`}
                                                     style={{
                                                         width: `${battery.estimatedChargeRemaining}%`
@@ -1023,36 +1112,84 @@ const DeviceMonitor = () => {
                         )}
 
 
-                        {/* Network tab - Display each network item in rows */}
                         {activeTab === "network" && (
                             <CustomCard>
-                                <div className="p-8">
-                                    <h2 className="text-xl font-semibold text-gray-900 mb-8 tracking-wide">
-                                        🌐 Network Details
+                                <div className="p-8 space-y-8">
+
+                                    {/* ================= HEADER ================= */}
+                                    <h2 className="text-xl font-semibold text-gray-900 tracking-wide">
+                                        🌐 Network Overview
                                     </h2>
 
+                                    {/* ================= SWITCH INFO ================= */}
+                                    {deviceData?.connectedSwitchName && (
+                                        <div className="rounded-xl p-5 bg-green-50 border border-green-200 shadow-sm">
+                                            <h3 className="text-sm font-semibold text-gray-700 uppercase mb-3">
+                                                Switch Connection
+                                            </h3>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+
+                                                <div>
+                                                    <p className="text-gray-500">Switch Name</p>
+                                                    <p className="font-medium text-gray-900">
+                                                        {deviceData.connectedSwitchName}
+                                                    </p>
+                                                </div>
+
+                                                <div
+                                                    className="cursor-pointer hover:underline"
+                                                    onClick={() =>
+                                                        navigator.clipboard.writeText(
+                                                            deviceData.connectedSwitchIp || ""
+                                                        )
+                                                    }
+                                                >
+                                                    <p className="text-gray-500">Switch IP</p>
+                                                    <p className="font-medium text-gray-900">
+                                                        {deviceData.connectedSwitchIp}
+                                                    </p>
+                                                </div>
+
+                                                <div>
+                                                    <p className="text-gray-500">Port</p>
+                                                    <p className="font-medium text-gray-900">
+                                                        {deviceData.connectedPort}
+                                                    </p>
+                                                </div>
+
+                                                <div>
+                                                    <p className="text-gray-500">Protocol</p>
+                                                    <p className="font-medium text-gray-900">
+                                                        {deviceData.connectionProtocol || "N/A"}
+                                                    </p>
+                                                </div>
+
+                                                <div className="col-span-2 text-xs text-gray-400">
+                                                    Last Seen:{" "}
+                                                    {deviceData.portLastSeen
+                                                        ? new Date(
+                                                            deviceData.portLastSeen
+                                                        ).toLocaleString()
+                                                        : "N/A"}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* ================= NETWORK INTERFACES ================= */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        {deviceData?.otherDetails?.map((network, index) => {
+                                        {deviceData?.networkDetails?.map((network: any, index: number) => {
                                             const Connected = isConnected(network.networkType);
                                             const Icon = getNetworkIcon(network.networkType);
 
                                             return (
                                                 <div
                                                     key={index}
-                                                    className="relative rounded-xl p-6
-                                                bg-gradient-to-br from-blue-50 to-white
-                                                border border-blue-200
-                                                shadow-sm transition-all duration-300
-                                                hover:shadow-lg hover:-translate-y-1"
+                                                    className="rounded-xl p-6 bg-gradient-to-br from-blue-50 to-white border border-blue-200 shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
                                                 >
-                                                    {/* Status Dot */}
-                                                    {/* <span
-                                        className={`absolute top-4 right-4 w-2.5 h-2.5 rounded-full
-                                        ${Connected ? "bg-green-500" : "bg-red-500"}`}
-                                    /> */}
-
-                                                    {/* Header */}
-                                                    <div className="flex items-center gap-3 mb-6">
+                                                    {/* HEADER */}
+                                                    <div className="flex items-center gap-3 mb-5">
                                                         <div className="p-2 bg-white rounded-lg shadow">
                                                             <Icon className="h-5 w-5 text-blue-600" />
                                                         </div>
@@ -1065,49 +1202,53 @@ const DeviceMonitor = () => {
                                                                 {network.networkType}
                                                             </p>
                                                         </div>
+
+                                                        {/* STATUS */}
+                                                        <span
+                                                            className={`ml-auto w-2.5 h-2.5 rounded-full ${Connected
+                                                                ? "bg-green-500"
+                                                                : "bg-red-500"
+                                                                }`}
+                                                        />
                                                     </div>
 
-                                                    {/* Details */}
+                                                    {/* DETAILS */}
                                                     <div className="space-y-4 text-sm">
+
                                                         {/* IP */}
-                                                        <div className="flex items-start gap-3">
-                                                            <Activity className="h-4 w-4 text-blue-500 mt-1" />
-                                                            <div>
-                                                                <p className="text-lg  text-left font-semibold uppercase text-gray-500">
-                                                                    IP Address
-                                                                </p>
-                                                                <p
-                                                                    className="font-medium text-xl text-left text-gray-900 cursor-pointer hover:underline"
-                                                                    onClick={() =>
-                                                                        navigator.clipboard.writeText(
-                                                                            network.ipAddress
-                                                                        )
-                                                                    }
-                                                                >
-                                                                    {network.ipAddress}
-                                                                </p>
-                                                            </div>
+                                                        <div>
+                                                            <p className="text-xs uppercase text-gray-500">
+                                                                IP Address
+                                                            </p>
+                                                            <p
+                                                                className="font-semibold text-gray-900 cursor-pointer hover:underline"
+                                                                onClick={() =>
+                                                                    navigator.clipboard.writeText(
+                                                                        network.ipAddress
+                                                                    )
+                                                                }
+                                                            >
+                                                                {network.ipAddress}
+                                                            </p>
                                                         </div>
 
                                                         {/* MAC */}
-                                                        <div className="flex items-start gap-3">
-                                                            <Fingerprint className="h-4 w-4 text-purple-500 mt-1" />
-                                                            <div>
-                                                                <p className="text-lg text-left font-semibold uppercase text-gray-500">
-                                                                    MAC Address
-                                                                </p>
-                                                                <p
-                                                                    className="font-medium text-xl text-left text-gray-900 cursor-pointer hover:underline"
-                                                                    onClick={() =>
-                                                                        navigator.clipboard.writeText(
-                                                                            network.macAddress
-                                                                        )
-                                                                    }
-                                                                >
-                                                                    {network.macAddress}
-                                                                </p>
-                                                            </div>
+                                                        <div>
+                                                            <p className="text-xs uppercase text-gray-500">
+                                                                MAC Address
+                                                            </p>
+                                                            <p
+                                                                className="font-semibold text-gray-900 cursor-pointer hover:underline"
+                                                                onClick={() =>
+                                                                    navigator.clipboard.writeText(
+                                                                        network.macAddress
+                                                                    )
+                                                                }
+                                                            >
+                                                                {network.macAddress}
+                                                            </p>
                                                         </div>
+
                                                     </div>
                                                 </div>
                                             );
@@ -1116,8 +1257,6 @@ const DeviceMonitor = () => {
                                 </div>
                             </CustomCard>
                         )}
-
-
 
                         {/* Security tab - Display security settings in rows */}
                         {activeTab === "security" && (

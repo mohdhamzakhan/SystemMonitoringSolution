@@ -12,6 +12,7 @@ import SystemReport from "./SystemReport.jsx";
 import UpdateManagementPage from "./ApplicationMgmt.tsx";
 import WarrantyManagement from "./WarrantyManagement.tsx";
 import VulnerabilityDashboard from "./VulnerabilityDashboard.tsx";
+import NetworkDashboard from "./Networkdashboard.jsx";
 
 const Application = () => (
     <Router>
@@ -30,6 +31,7 @@ const Application = () => (
             <Route path="/systemReport" element={<SystemReport />} />
             <Route path="/warranty-management" element={<WarrantyManagement />} />
             <Route path="/vulnerability-dashboard" element={<VulnerabilityDashboard />} />
+            <Route path="/NetworkDashboard" element={<NetworkDashboard />} />
             {/* Register details route */}
         </Routes>
     </Router>

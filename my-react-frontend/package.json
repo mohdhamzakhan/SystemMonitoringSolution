@@ -26,6 +26,7 @@
     "react-scripts": "^5.0.1",
     "recharts": "^3.8.1",
     "tailwind-merge": "^2.6.0",
+    "vis-network": "^10.0.2",
     "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5"
   },

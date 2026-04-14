@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using SystemMonitorAPI.Models;
 
 namespace SystemMonitorAPI.Model
 {
@@ -25,6 +26,14 @@ namespace SystemMonitorAPI.Model
         public DbSet<BatteryInfo> BatteryInfo { get; set; }
         public DbSet<SystemEventInfo> SystemEvents { get; set; }
         public DbSet<Vulnerability> Vulnerabilities { get; set; }
+
+        #region Switch
+        // ── Network scan tables ───────────────────────────────────
+        public DbSet<SmmSwitch> Switches { get; set; }
+        public DbSet<SmmSwitchPort> SwitchPorts { get; set; }
+        public DbSet<SmmSwitchNeighbor> SwitchNeighbors { get; set; }
+
+        #endregion
 
         #region Installation
         public DbSet<SystemInfo> Systems { get; set; }
@@ -108,7 +117,63 @@ namespace SystemMonitorAPI.Model
                 .HasIndex(v => new { v.CveId, v.SoftwareDetailsID })
                 .IsUnique();
 
-            
+            #region switch
+            // ── SMM_SWITCH ────────────────────────────────────────
+            modelBuilder.Entity<SmmSwitch>(e =>
+            {
+                e.HasKey(x => x.SwitchId);
+
+                // Unique IP
+                e.HasIndex(x => x.IpAddress).IsUnique();
+
+                // Oracle: use sequence for identity (fully qualified)
+                OraclePropertyBuilderExtensions.UseHiLo(e.Property(x => x.SwitchId), "SMM_SWITCH_SEQ");
+
+                e.HasMany(x => x.Ports)
+                 .WithOne(p => p.Switch)
+                 .HasForeignKey(p => p.SwitchId)
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                e.HasMany(x => x.NeighborsAsLocal)
+                 .WithOne(n => n.LocalSwitch)
+                 .HasForeignKey(n => n.LocalSwitchId)
+                 .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── SMM_SWITCHPORT ────────────────────────────────────
+            modelBuilder.Entity<SmmSwitchPort>(e =>
+            {
+                e.HasKey(x => x.PortId);
+
+                // Oracle: use sequence for identity
+                OraclePropertyBuilderExtensions.UseHiLo(e.Property(x => x.PortId), "SMM_SWITCHPORT_SEQ");
+
+                // Unique per switch + ifIndex
+                e.HasIndex(x => new { x.SwitchId, x.IfIndex }).IsUnique();
+            });
+
+            // ── SMM_SWITCHNEIGHBOR ────────────────────────────────
+            modelBuilder.Entity<SmmSwitchNeighbor>(e =>
+            {
+                e.HasKey(x => x.NeighborId);
+
+                // Oracle: use sequence for identity
+                OraclePropertyBuilderExtensions.UseHiLo(e.Property(x => x.NeighborId), "SMM_NEIGHBOR_SEQ");
+
+                // Optional FK: remote switch may not be managed
+                e.HasOne(x => x.RemoteSwitch)
+                 .WithMany()
+                 .HasForeignKey(x => x.RemoteSwitchId)
+                 .OnDelete(DeleteBehavior.SetNull)
+                 .IsRequired(false);
+
+                e.HasOne(x => x.LocalPort)
+                 .WithMany(p => p.Neighbors)
+                 .HasForeignKey(x => x.LocalPortId)
+                 .OnDelete(DeleteBehavior.SetNull)
+                 .IsRequired(false);
+            });
+            #endregion
 
             #region Installation
             // Configure the many-to-many relationship between SystemInfo and UpdateInfo
