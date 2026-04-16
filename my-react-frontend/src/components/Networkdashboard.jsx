@@ -15,7 +15,9 @@ const vendorIcon = (vendor) => {
 const layerBadge = (layer) =>
     layer === "L3"
         ? <span style={styles.badgeL3}>L3</span>
-        : <span style={styles.badgeL2}>L2</span>;
+        : layer === "Firewall"
+            ? <span style={styles.badgeFirewall}>FW</span>
+            : <span style={styles.badgeL2}>L2</span>;
 
 const statusDot = (reachable) =>
     <span style={{ color: reachable ? "#16a34a" : "#dc2626", fontSize: 12 }}>
@@ -129,6 +131,7 @@ export default function NetworkDashboard() {
                         { label: "Online", value: switches.filter(s => s.isReachable).length, icon: "🟢", bg: "#f0fdf4", color: "#15803d" },
                         { label: "Offline", value: switches.filter(s => !s.isReachable).length, icon: "🔴", bg: "#fff1f2", color: "#be123c" },
                         { label: "L3 Switches", value: switches.filter(s => s.switchLayer === "L3").length, icon: "🔷", bg: "#eef2ff", color: "#4338ca" },
+                        { label: "Firewall", value: switches.filter(s => s.switchLayer === "Firewall").length, icon: "🔥", bg: "#eef2ff", color: "#4338ca" },
                         { label: "L2 Switches", value: switches.filter(s => s.switchLayer === "L2").length, icon: "🔹", bg: "#f0f9ff", color: "#0369a1" },
                     ].map(c => (
                         <div key={c.label} style={{ ...styles.statCard, background: c.bg }}>
@@ -166,7 +169,7 @@ export default function NetworkDashboard() {
                             </select>
                             <select style={styles.select} value={filterLayer}
                                 onChange={e => setFilterLayer(e.target.value)}>
-                                {["All", "L2", "L3"].map(l => <option key={l}>{l}</option>)}
+                                {["All", "L2", "L3", "Firwall"].map(l => <option key={l}>{l}</option>)}
                             </select>
                             <span style={{ color: "#64748b", fontSize: 13 }}>
                                 {filteredSwitches.length} results
@@ -283,7 +286,11 @@ export default function NetworkDashboard() {
 function TopologyDiagram({ topology, onSelectNode, onRefresh }) {
     const containerRef = useRef(null);
     const networkRef = useRef(null);
-
+    // Keep onSelectNode in a ref so it never triggers useEffect re-runs
+    const onSelectNodeRef = useRef(onSelectNode);
+    useEffect(() => {
+        onSelectNodeRef.current = onSelectNode;
+    }, [onSelectNode]);
     // Build the network once vis is ready AND topology data is loaded.
     useEffect(() => {
         if (!topology || !containerRef.current) return;
@@ -300,16 +307,7 @@ function TopologyDiagram({ topology, onSelectNode, onRefresh }) {
             rawNodes.map(n => ({
                 id: n.id,
                 label: `${n.label}\n${n.ipAddress}`,
-                color: {
-                    background: n.isReachable
-                        ? (n.vendor === "Cisco" ? "#dbeafe" : "#dcfce7")
-                        : "#fee2e2",
-                    border: n.isReachable
-                        ? (n.vendor === "Cisco" ? "#3b82f6" : "#22c55e")
-                        : "#ef4444",
-                    highlight: { background: "#fef9c3", border: "#f59e0b" },
-                    hover: { background: "#fef9c3", border: "#f59e0b" }
-                },
+                color: getNodeColor(n),
                 font: {
                     color: "#1e293b",
                     size: 13,
@@ -384,19 +382,44 @@ function TopologyDiagram({ topology, onSelectNode, onRefresh }) {
         );
 
         networkRef.current.on("selectNode", ({ nodes: sel }) => {
-            if (sel[0]) onSelectNode(sel[0]);
+            if (sel[0]) onSelectNodeRef.current(sel[0]);
         });
 
         // Fit all nodes into view after stabilization
         networkRef.current.on("stabilizationIterationsDone", () => {
             networkRef.current?.fit({ animation: { duration: 600, easingFunction: "easeInOutQuad" } });
         });
+        // Unfix node when drag starts (so vis.js tracks the drag)
+        // Unfix node when drag starts — preserve color explicitly
+        networkRef.current.on("dragStart", ({ nodes: draggedNodes }) => {
+            if (!draggedNodes.length) return;
+            nodes.update(draggedNodes.map(id => {
+                const node = nodes.get(id);
+                return { id, fixed: { x: false, y: false }, color: node.color };
+            }));
+        });
+
+        // Re-fix node at new position — preserve color explicitly
+        networkRef.current.on("dragEnd", ({ nodes: draggedNodes }) => {
+            if (!draggedNodes.length) return;
+            nodes.update(draggedNodes.map(id => {
+                const node = nodes.get(id);
+                return { id, fixed: { x: true, y: true }, color: node.color };
+            }));
+        });
+
+        networkRef.current.on("doubleClick", ({ nodes: clickedNodes }) => {
+            if (!clickedNodes.length) return;
+
+            const updates = clickedNodes.map(id => ({ id, fixed: { x: false, y: false } }));
+            nodes.update(updates);
+        });
 
         return () => {
             networkRef.current?.destroy();
             networkRef.current = null;
         };
-    }, [topology, onSelectNode]);
+    }, [topology]);
 
     const nodeCount = topology?.nodes?.length ?? 0;
     const edgeCount = topology?.edges?.length ?? 0;
@@ -415,6 +438,9 @@ function TopologyDiagram({ topology, onSelectNode, onRefresh }) {
                     </span>
                     <span style={styles.legendItem}>
                         <span style={{ ...styles.legendDot, background: "#fee2e2", border: "2px solid #ef4444" }} /> Offline
+                    </span>
+                    <span style={styles.legendItem}>
+                        <span style={{ ...styles.legendDot, background: "#fdf4ff", border: "2px solid #a855f7" }} /> Firewall
                     </span>
                     <span style={styles.legendItem}>◆ = L3 &nbsp; ■ = L2</span>
                 </div>
@@ -566,6 +592,14 @@ const styles = {
 
     badgeL3: { background: "#eff6ff", color: "#1d4ed8", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600 },
     badgeL2: { background: "#f0fdf4", color: "#15803d", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600 },
+    badgeFirewall: {
+        background: "#fef2f2",
+        color: "#b91c1c",
+        padding: "2px 8px",
+        borderRadius: 4,
+        fontSize: 11,
+        fontWeight: 600
+    },
     protocolBadge: { marginLeft: 6, background: "#f1f5f9", color: "#475569", padding: "1px 6px", borderRadius: 4, fontSize: 10, fontWeight: 500 },
 
     loading: { color: "#94a3b8", padding: 40, textAlign: "center", background: "#fff", borderRadius: 12 },
@@ -589,4 +623,35 @@ const styles = {
     detailValue: { color: "#334155", fontSize: 13, textAlign: "right", fontFamily: "monospace" },
     uplinkRow: { background: "#fff", border: "1px solid #f1f5f9", borderRadius: 8, padding: "10px 12px", marginBottom: 8 },
     portRow: { display: "flex", alignItems: "center", gap: 12, padding: "6px 0", borderBottom: "1px solid #f1f5f9" },
+};
+
+// Helper to get node color based on device type and reachability
+const getNodeColor = (n) => {
+    if (!n.isReachable) return {
+        background: "#fee2e2", border: "#ef4444",
+        highlight: { background: "#fef9c3", border: "#f59e0b" },
+        hover: { background: "#fef9c3", border: "#f59e0b" }
+    };
+    const label = (n.label || "").toLowerCase();
+    const vendor = (n.vendor || "").toLowerCase();
+    const isFirewall = label.includes("fw") || label.includes("firewall") ||
+        label.includes("asa") || label.includes("ftd") ||
+        label.includes("fortigate") || label.includes("fortiswitch") ||
+        vendor.includes("fortinet") || vendor.includes("palo") ||
+        vendor.includes("fortigate");
+    if (isFirewall) return {
+        background: "#fdf4ff", border: "#a855f7",
+        highlight: { background: "#fef9c3", border: "#f59e0b" },
+        hover: { background: "#fef9c3", border: "#f59e0b" }
+    };
+    if (n.vendor === "Cisco") return {
+        background: "#dbeafe", border: "#3b82f6",
+        highlight: { background: "#fef9c3", border: "#f59e0b" },
+        hover: { background: "#fef9c3", border: "#f59e0b" }
+    };
+    return {
+        background: "#dcfce7", border: "#22c55e",
+        highlight: { background: "#fef9c3", border: "#f59e0b" },
+        hover: { background: "#fef9c3", border: "#f59e0b" }
+    };
 };

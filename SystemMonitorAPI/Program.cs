@@ -42,6 +42,8 @@ builder.Services.AddDbContextFactory<SystemMonitorContext>(options =>
         o => o.UseOracleSQLCompatibility(OracleSQLCompatibility.DatabaseVersion19));
     options.UseLazyLoadingProxies();
 });
+builder.Services.AddScoped<ILocalOnlyVulnerabilityScanService, LocalOnlyVulnerabilityScanService>();
+builder.Services.AddScoped<LocalVulnerabilityScanJob>();
 
 // ── Hangfire — store jobs in Oracle ─────────────────────────
 builder.Services.AddHangfire(config => config

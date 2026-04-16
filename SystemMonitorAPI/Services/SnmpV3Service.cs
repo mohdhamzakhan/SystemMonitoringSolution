@@ -158,6 +158,8 @@ namespace SystemMonitorAPI.Services
             lock (_lock) { _discoveryCache.Remove(ipAddress); }
         }
 
+
+
         // ── Credential resolution ─────────────────────────────────────────────
 
         private IEnumerable<SnmpV3Config> ResolveCredentials(string ipAddress, string? poolName)
@@ -386,6 +388,7 @@ namespace SystemMonitorAPI.Services
                             Messenger.NextMessageId,
                             Messenger.NextRequestId,
                             new OctetString(cred.Username),
+                            new OctetString("root"),
                             0,
                             maxRepetitions,
                             new List<Variable> { new Variable(currentOid) },
@@ -573,5 +576,22 @@ namespace SystemMonitorAPI.Services
         public const string CdpCachePlatform = "1.3.6.1.4.1.9.9.23.1.2.1.1.8";
 
         public const string HpSysSwitchType = "1.3.6.1.4.1.11.2.36.1.1.5.1.1.2.1";
+
+        // Fortinet FortiGate interface extensions (fgIntf - 1.3.6.1.4.1.12356.101.7)
+        public const string FgIntfEntVdom = "1.3.6.1.4.1.12356.101.7.2.1.1.1"; // virtual domain index
+        public const string FgIntfEntEstUpBandwidth = "1.3.6.1.4.1.12356.101.7.2.1.1.2"; // estimated upstream Kbps
+        public const string FgIntfEntEstDownBandwidth = "1.3.6.1.4.1.12356.101.7.2.1.1.3"; // estimated downstream Kbps
+        public const string FgIntfEntMeaUpBandwidth = "1.3.6.1.4.1.12356.101.7.2.1.1.4"; // measured upstream Kbps
+        public const string FgIntfEntMeaDownBandwidth = "1.3.6.1.4.1.12356.101.7.2.1.1.5"; // measured downstream Kbps
+
+        // Fortinet VLAN table (fgIntfVlanTable - indexed by ifIndex)
+        public const string FgIntfVlanName = "1.3.6.1.4.1.12356.101.7.2.2.1.1"; // VLAN interface name
+        public const string FgIntfVlanID = "1.3.6.1.4.1.12356.101.7.2.2.1.2"; // VLAN ID
+        public const string FgIntfVlanPhyName = "1.3.6.1.4.1.12356.101.7.2.2.1.3"; // physical interface name
+
+        // Fortinet system info
+        public const string FgSysVersion = "1.3.6.1.4.1.12356.101.4.1.1.0"; // FortiOS firmware version
+        public const string FgSysCpuUsage = "1.3.6.1.4.1.12356.101.4.1.3.0"; // CPU %
+        public const string FgSysMemUsage = "1.3.6.1.4.1.12356.101.4.1.4.0"; // Memory %
     }
 }

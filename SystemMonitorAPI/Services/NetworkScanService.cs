@@ -172,7 +172,10 @@ namespace SystemMonitorAPI.Services
                 if (sw.SwitchId == 0) db.Switches.Add(sw);
                 await db.SaveChangesAsync(ct);
 
-                await ScanInterfacesAsync(sw, db, effectivePool, ct);
+                if (vendor == "Fortinet")
+                    await ScanFortinetInterfacesAsync(sw, db, effectivePool, ct);
+                else
+                    await ScanInterfacesAsync(sw, db, effectivePool, ct);
 
                 // Replace the protocol dispatch block in ScanSingleIpAsync:
 
@@ -270,7 +273,17 @@ namespace SystemMonitorAPI.Services
 
                 // Skip loopback (type 24)
                 var typeSuffix = $"{OidConstants.IfType}.{ifIndex}";
-                if (types.TryGetValue(typeSuffix, out var typeStr) && typeStr == "24") continue;
+                // With this:
+                if (types.TryGetValue(typeSuffix, out var typeStr))
+                {
+                    if (int.TryParse(typeStr, out int ifTypeVal))
+                    {
+                        // Skip: 24=loopback, 131=tunnel, 166=mpls, 160=ieee80216WMAN
+                        // Allow everything else including Fortinet's physical/vlan/aggregate ports
+                        if (ifTypeVal == 24 || ifTypeVal == 131 || ifTypeVal == 166)
+                            continue;
+                    }
+                }
 
                 var port = sw.Ports.FirstOrDefault(p => p.IfIndex == ifIndex)
                            ?? new SmmSwitchPort { SwitchId = sw.SwitchId, IfIndex = ifIndex };
@@ -938,9 +951,86 @@ namespace SystemMonitorAPI.Services
             if (model == "Unknown" && !string.IsNullOrWhiteSpace(sysDescr))
                 model = sysDescr.Length > 50 ? sysDescr[..50] : sysDescr;
 
+            // Add this block BEFORE the Cisco check
+            if (desc.Contains("fortinet") || desc.Contains("fortigate") ||
+                desc.Contains("fortiswitch") || desc.Contains("fortios") || desc.Contains("firewall"))
+            {
+                vendor = "Fortinet";
+
+                // Try to extract model: FortiGate-100F, FortiGate-60E, FortiSwitch-248E, etc.
+                var fgMatch = System.Text.RegularExpressions.Regex.Match(
+                    sysDescr, @"(FortiGate|FortiSwitch|FortiWifi)[-\s]?([\w\-]+)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (fgMatch.Success)
+                    model = fgMatch.Groups[1].Value + "-" + fgMatch.Groups[2].Value;
+
+                // Fortinet firewalls are always L3
+                layer = "Firewall";
+
+                return (vendor, model, layer);
+            }
+
             return (vendor, model, layer);
         }
+        private async Task ScanFortinetInterfacesAsync(
+    SmmSwitch sw, SystemMonitorContext db, string? poolName, CancellationToken ct)
+        {
+            var descrs = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfDescr, poolName: poolName);
+            var opers = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfOperStatus, poolName: poolName);
+            var admins = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfAdminStatus, poolName: poolName);
+            var speeds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfHighSpeed, poolName: poolName);
+            var types = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfType, poolName: poolName);
 
+            foreach (var kv in descrs)
+            {
+                var ifIndexStr = kv.Key.Split('.').Last();
+                if (!int.TryParse(ifIndexStr, out int ifIndex))
+                    continue;
+
+                var portName = kv.Value?.Trim();
+
+                // 🔥 Only real ports (FortiGate naming)
+                if (string.IsNullOrWhiteSpace(portName) ||
+                    !(portName.StartsWith("port") || portName.StartsWith("wan")))
+                    continue;
+
+                types.TryGetValue($"{OidConstants.IfType}.{ifIndex}", out var typeStr);
+                if (int.TryParse(typeStr, out int ifTypeVal) &&
+                    (ifTypeVal == 24 || ifTypeVal == 131)) // loopback/tunnel
+                    continue;
+
+                var port = sw.Ports.FirstOrDefault(p => p.IfIndex == ifIndex)
+                           ?? new SmmSwitchPort { SwitchId = sw.SwitchId, IfIndex = ifIndex };
+
+                port.PortName = portName;
+
+                if (opers.TryGetValue($"{OidConstants.IfOperStatus}.{ifIndex}", out var op)
+                    && int.TryParse(op, out int opInt))
+                    port.OperStatus = opInt;
+
+                if (admins.TryGetValue($"{OidConstants.IfAdminStatus}.{ifIndex}", out var adm)
+                    && int.TryParse(adm, out int admInt))
+                    port.AdminStatus = admInt;
+
+                if (speeds.TryGetValue($"{OidConstants.IfHighSpeed}.{ifIndex}", out var spd)
+                    && long.TryParse(spd, out long mbps))
+                    port.SpeedMbps = mbps;
+
+                if (int.TryParse(typeStr, out int typeInt))
+                    port.IfType = typeInt;
+
+                port.LastUpdated = DateTime.Now;
+
+                if (port.PortId == 0)
+                    sw.Ports.Add(port);
+            }
+
+            await db.SaveChangesAsync(ct);
+        }
+   
+
+
+       
         private static string FormatMac(string raw)
         {
             var hex = new string(raw.Where(c => "0123456789ABCDEFabcdef".Contains(c)).ToArray());

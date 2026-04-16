@@ -55,7 +55,7 @@ namespace SystemMonitorAPI.Model
             _http = httpFactory.CreateClient("cve-local");
             _logger = logger;
 
-            // Allow override via appsettings, fall back to %TEMP%/cve-db
+            // Allow override via appsettings, fall back to cc
             _dbRoot = config["CveLocal:DbRoot"]
                            ?? Path.Combine(Path.GetTempPath(), "cve-db");
             _zipPath = Path.Combine(_dbRoot, "cvelistV5.zip");
@@ -177,10 +177,6 @@ namespace SystemMonitorAPI.Model
 
             string tmp = _zipPath + ".tmp";
 
-            // ── Skip download if a completed zip already exists from this run ──
-            // This protects against Hangfire retries re-downloading after a
-            // post-download error (e.g. file lock during Move). If the zip is
-            // already present and healthy, just skip straight to extraction.
             if (File.Exists(_zipPath) && !File.Exists(tmp))
             {
                 long existingMb = new FileInfo(_zipPath).Length / 1_048_576;
@@ -189,65 +185,64 @@ namespace SystemMonitorAPI.Model
                 return;
             }
 
-            using var response = await _http.GetAsync(
-                ZipUrl,
-                HttpCompletionOption.ResponseHeadersRead);
-
+            using var response = await _http.GetAsync(ZipUrl, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
 
-            // Content-Length may be absent (GitHub sometimes omits it)
             long? totalBytes = response.Content.Headers.ContentLength;
             string totalLabel = totalBytes.HasValue
                 ? $"{totalBytes.Value / 1_048_576.0:F1} MB"
                 : "unknown size";
-
             Console.WriteLine($"[CveLocal] Total size: {totalLabel}");
 
             await using var body = await response.Content.ReadAsStreamAsync();
-            await using var fs = new FileStream(
+
+            // ✅ Explicit block — FileStream is fully closed before File.Move below
+            await using (var fs = new FileStream(
                 tmp, FileMode.Create, FileAccess.Write, FileShare.None,
-                bufferSize: 81_920);   // 80 KB write buffer
-
-            var buffer = new byte[81_920];
-            long downloaded = 0;
-            int lastPct = -1;
-            int read;
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-
-            while ((read = await body.ReadAsync(buffer)) > 0)
+                bufferSize: 81_920))
             {
-                await fs.WriteAsync(buffer.AsMemory(0, read));
-                downloaded += read;
+                var buffer = new byte[81_920];
+                long downloaded = 0;
+                int lastPct = -1;
+                int read;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
 
-                // ── progress bar (every 1 %) ────────────────────
-                int pct = totalBytes.HasValue
-                    ? (int)(downloaded * 100L / totalBytes.Value)
-                    : -1;
-
-                if (pct != lastPct || sw.ElapsedMilliseconds >= 2_000)
+                while ((read = await body.ReadAsync(buffer)) > 0)
                 {
-                    lastPct = pct;
-                    sw.Restart();
+                    await fs.WriteAsync(buffer.AsMemory(0, read));
+                    downloaded += read;
 
-                    double mbDone = downloaded / 1_048_576.0;
+                    int pct = totalBytes.HasValue
+                        ? (int)(downloaded * 100L / totalBytes.Value)
+                        : -1;
 
-                    if (totalBytes.HasValue)
+                    if (pct != lastPct || sw.ElapsedMilliseconds >= 2_000)
                     {
-                        int filled = pct / 5;                   // 20-char bar
-                        string bar = new string('█', filled) + new string('░', 20 - filled);
-                        Console.Write($"\r  [{bar}] {pct,3}%  {mbDone:F1} / {totalBytes.Value / 1_048_576.0:F1} MB   ");
-                    }
-                    else
-                    {
-                        Console.Write($"\r  Downloaded {mbDone:F1} MB …   ");
+                        lastPct = pct;
+                        sw.Restart();
+                        double mbDone = downloaded / 1_048_576.0;
+
+                        if (totalBytes.HasValue)
+                        {
+                            int filled = pct / 5;
+                            string bar = new string('█', filled) + new string('░', 20 - filled);
+                            Console.Write($"\r  [{bar}] {pct,3}%  {mbDone:F1} / {totalBytes.Value / 1_048_576.0:F1} MB   ");
+                        }
+                        else
+                        {
+                            Console.Write($"\r  Downloaded {mbDone:F1} MB …   ");
+                        }
                     }
                 }
-            }
 
-            // Ensure final line is clean
+                // ✅ Flush explicitly before the using block closes the file
+                await fs.FlushAsync();
+
+            } // ← FileStream is fully closed/disposed HERE, before File.Move
+
             Console.WriteLine($"\r  [████████████████████] 100%  — download complete.      ");
 
-            // ── Atomic overwrite (single OS call, no delete-then-move race) ──
+            // ✅ Now safe to move — no handle open on the .tmp file
             try
             {
                 File.Move(tmp, _zipPath, overwrite: true);
@@ -255,7 +250,6 @@ namespace SystemMonitorAPI.Model
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[CveLocal] Failed to move temp zip to final path.");
-                // Leave .tmp on disk so the skip-check above works on retry
                 throw;
             }
 
@@ -271,10 +265,18 @@ namespace SystemMonitorAPI.Model
             _logger.LogInformation("[CveLocal] Extracting zip …");
             Console.WriteLine("[CveLocal] Opening zip archive …");
 
-            // Wipe old extraction to avoid stale files
+            // ✅ Skip extraction if folder exists and was extracted within the last 24 hours
             if (Directory.Exists(_extractRoot))
             {
-                Console.WriteLine("[CveLocal] Removing old extraction folder …");
+                var extractedAt = Directory.GetLastWriteTime(_extractRoot);
+                if (DateTime.Now - extractedAt < TimeSpan.FromHours(24))
+                {
+                    Console.WriteLine($"[CveLocal] Extraction folder is fresh (last written: {extractedAt:g}) — skipping extraction.\n");
+                    _logger.LogInformation("[CveLocal] Skipping extraction — folder is less than 24 h old.");
+                    return Task.CompletedTask;
+                }
+
+                Console.WriteLine("[CveLocal] Extraction folder is stale — removing and re-extracting …");
                 Directory.Delete(_extractRoot, recursive: true);
             }
 
