@@ -39,7 +39,10 @@ const UpdateInfoForm = () => {
             const response = await fetch(APP_CONSTANTS.API_BASE_URL + "/api/installation/active-updates");
             if (!response.ok) throw new Error(`Failed to fetch active updates: ${response.status}`);
             const data = await response.json();
-            setActiveUpdates(data.$values || []);
+
+            // ✅ Handle both plain array and $values format
+            const updates = Array.isArray(data) ? data : data.$values || [];
+            setActiveUpdates(updates);
 
         } catch (err) {
             console.error(err);

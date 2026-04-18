@@ -23,6 +23,9 @@ namespace SystemMonitorAPI.Controllers
     ///   POST /api/device/resolve-ports         - Trigger device port resolution (hostname → switch+port)
     ///   POST /api/device/resolve-ports/{hostname} - Trigger device port resolution for a specific hostname
     ///   GET /api/device/port-map                - Get current device → switch+port mapping
+    /// GET /api/networkscan/endpoints            - Get all endpoints discovered in the last scan, with optional filtering
+    /// GET /api/networkscan/endpoints?switchId=5 - Get endpoints for a specific switch
+    /// GET /api/networkscan/endpoints?type=Access Point - Get endpoints of a specific type (e.g. "Access Point", "Printer", "Workstation")
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
@@ -201,6 +204,7 @@ namespace SystemMonitorAPI.Controllers
                 finally { _scanning = false; }
             }, ct);
 
+
             return Accepted(new ScanStatusDto { IsRunning = true, Message = $"Scanning pool: {poolName}" });
         }
 
@@ -292,6 +296,66 @@ namespace SystemMonitorAPI.Controllers
                 PortLastSeen = d.PortLastSeen
             }));
         }
+        [HttpGet("port-ap-map")]
+        public async Task<ActionResult<IEnumerable<DevicePortDto>>> GetPortMapForAP(
+    [FromQuery] bool unmappedOnly = false)
+        {
+            var query = _db.SwitchNeighbors
+                .Include(n => n.LocalSwitch)
+                .Include(n => n.LocalPort)
+                .AsQueryable();
+
+            // AP detection (more robust than strict "eth0")
+            query = query.Where(x =>
+                x.RemotePortName != null &&
+                x.RemotePortName.ToLower().Contains("eth0"));
+
+            // Apply unmapped filter if needed
+            if (unmappedOnly)
+            {
+                query = query.Where(x => x.RemoteSwitchId == null);
+            }
+
+            var devices = await query
+                .OrderBy(x => x.LocalSwitchId)
+                .ToListAsync();
+
+            var result = devices.Select(d => new DevicePortDto
+            {
+                Hostname = d.RemoteSysName,
+                Username = d.RemoteSysName,
+                Department = d.RemoteSysName,
+                Status = "Connected",
+
+                ConnectedSwitchId = d.LocalSwitchId,
+                ConnectedSwitchName = d.LocalSwitch != null ? d.LocalSwitch.Hostname : null,
+                ConnectedSwitchIp = d.LocalSwitch != null ? d.LocalSwitch.IpAddress : null,
+
+                ConnectedPort = d.LocalPortName,
+                ConnectionProtocol = d.Protocol,
+                PortLastSeen = d.LastSeen
+            });
+
+            return Ok(result);
+        }
+
+
+        [HttpGet("endpoints")]
+        public async Task<ActionResult<IEnumerable<EndpointDto>>> GetEndpoints(
+    [FromQuery] int? switchId = null,
+    [FromQuery] string? type = null,
+    CancellationToken ct = default)
+        {
+            var endpoints = await _scanner.GetEndpointsAsync(switchId, ct);
+
+            if (!string.IsNullOrEmpty(type))
+                endpoints = endpoints
+                    .Where(e => e.DeviceType!.Equals(type, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+            return Ok(endpoints);
+        }
+
         // ─── MAPPING HELPERS ──────────────────────────────────────────────────
 
         private static SwitchSummaryDto MapToSummaryDto(SmmSwitch sw)

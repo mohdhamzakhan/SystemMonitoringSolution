@@ -85,8 +85,6 @@ const getSeverityConfig = (severity: string | null | undefined): SeverityStyle =
 /* ================= COMPONENT ================= */
 
 const SoftwareDashboard = () => {
-    useAuth();
-
     const [softwareData, setSoftwareData] = useState<FlattenedSoftware[]>([]);
     const [searchTerm, setSearchTerm] = useState(() => {
         const params = new URLSearchParams(window.location.search);

@@ -9,7 +9,6 @@ import {
 } from "../components/ui/card";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { TabsContent, TabsList, TabsTrigger } from "@radix-ui/react-tabs";
-import useAuth from "./useAuth";
 import { APP_CONSTANTS } from "../store";
 const API_BASE_URL = APP_CONSTANTS.API_BASE_URL + "/api/UpdateTracking";
 
@@ -31,7 +30,6 @@ type SelectedUpdate = {
 };
 
 const UpdateTrackingDashboard = () => {
-  useAuth(); // Ensures the user is authenticated before loading the page
   const [selectedTab, setSelectedTab] = useState<string>("overview");
   const [updates, setUpdates] = useState<Update[]>([]);
   const [selectedUpdate, setSelectedUpdate] = useState<SelectedUpdate | null>(

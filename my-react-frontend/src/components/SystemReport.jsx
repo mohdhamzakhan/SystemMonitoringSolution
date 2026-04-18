@@ -3,7 +3,6 @@ import axios from "axios";
 import { APP_CONSTANTS } from "../store";
 import * as XLSX from "xlsx";
 import Navbar from "./Navbar";
-import useAuth from "./useAuth";
 import {
   Search,
   Download,
@@ -26,7 +25,6 @@ import {
 } from "lucide-react";
 
 const SystemReport = () => {
-  useAuth();
   const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [loading, setLoading] = useState(false);

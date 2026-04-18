@@ -130,7 +130,7 @@ builder.Services.AddScoped<IDeviceService, DeviceService>();
 builder.Services.AddSingleton<CredentialService>();
 builder.Services.AddScoped<IVulnerabilityScanService, VulnerabilityScanService>();
 builder.Services.AddScoped<IVulnerabilityEngine, VulnerabilityEngine>();
-
+builder.Services.AddScoped<IWirelessScanService, WirelessScanService>();
 // Singleton — in-memory CVE index is built once and reused across all requests
 builder.Services.AddSingleton<ICveLocalService, CveLocalService>();
 

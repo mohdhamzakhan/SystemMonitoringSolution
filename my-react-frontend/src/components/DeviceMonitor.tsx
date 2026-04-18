@@ -53,6 +53,7 @@ import LoadingPage from "./Loading.jsx";
 import Navbar from "./Navbar.jsx";
 import useAuth from "./useAuth.js";
 import { APP_CONSTANTS } from "../store.js";
+import { getRole } from "../auth";
 interface CustomCardProps {
     children: React.ReactNode;
     className?: string;
@@ -525,41 +526,22 @@ const DeviceMonitor = () => {
 
     console.log("deviceDataHamza", deviceData)
 
+    const isAdmin = getRole() === "Admin";  // ← add this line before the tabs array
+
     const tabs = [
         { value: "system", label: "System", icon: <Cpu className="h-4 w-4" /> },
-        {
-            value: "storage",
-            label: "Storage",
-            icon: <HardDrive className="h-4 w-4" />,
-        },
-        {
-            value: "network",
-            label: "Network",
-            icon: <Network className="h-4 w-4" />,
-        },
-        {
-            value: "security",
-            label: "Security",
-            icon: <Shield className="h-4 w-4" />,
-        },
+        { value: "storage", label: "Storage", icon: <HardDrive className="h-4 w-4" /> },
+        { value: "network", label: "Network", icon: <Network className="h-4 w-4" /> },
+        { value: "security", label: "Security", icon: <Shield className="h-4 w-4" /> },
         { value: "users", label: "Users", icon: <Users className="h-4 w-4" /> },
         { value: "software", label: "Software", icon: <Box className="h-4 w-4" /> },
-        {
-            value: "monitor",
-            label: "Monitor",
-            icon: <Monitor className="h-4 w-4" />,
-        },
-        {
-            value: "bitlocker",
-            label: "Bitlocker",
-            icon: <Key className="h-4 w-4" />,
-        },
-        {
-            value: "logs",
-            label: "Logs",
-            icon: <Activity className="h-4 w-4" />
-        }
+        { value: "monitor", label: "Monitor", icon: <Monitor className="h-4 w-4" /> },
 
+        // ✅ Only show these tabs for admins
+        ...(isAdmin ? [
+            { value: "bitlocker", label: "Bitlocker", icon: <Key className="h-4 w-4" /> },
+            { value: "logs", label: "Logs", icon: <Activity className="h-4 w-4" /> },
+        ] : []),
     ];
 
     console.log("deviceData", batteryInfo);
@@ -1518,7 +1500,7 @@ const DeviceMonitor = () => {
                                                         Version
                                                     </th>
                                                     <th className="px-6 py-3 text-center font-semibold text-gray-600">
-                                                        Action
+                                                        {(isAdmin && "Action")}
                                                     </th>
                                                 </tr>
                                             </thead>
@@ -1547,20 +1529,23 @@ const DeviceMonitor = () => {
 
                                                             {/* Action */}
                                                             <td className="px-6 py-4 text-center">
+                                                                
                                                                 {(software.uninstallString !== "Unknown" ||
                                                                     software.uninstallString == null) &&
                                                                     software.softwareDetailsID !== undefined &&
-                                                                    !hiddenButtons[software.softwareDetailsID] && (
+                                                                    !hiddenButtons[software.softwareDetailsID] &&
+                                                                    isAdmin &&  // ← add this line
+                                                                    (
                                                                         <button
                                                                             onClick={() => handleUninstall(software)}
                                                                             className="
-                                                    inline-flex items-center gap-1.5
-                                                    px-3 py-1.5 text-xs font-medium
-                                                    rounded-md border border-red-200
-                                                    text-red-700 bg-red-50
-                                                    hover:bg-red-100
-                                                    transition-colors
-                                                "
+                inline-flex items-center gap-1.5
+                px-3 py-1.5 text-xs font-medium
+                rounded-md border border-red-200
+                text-red-700 bg-red-50
+                hover:bg-red-100
+                transition-colors
+            "
                                                                         >
                                                                             <Trash2 className="h-3.5 w-3.5" />
                                                                             Uninstall

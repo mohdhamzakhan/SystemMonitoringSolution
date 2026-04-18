@@ -384,17 +384,17 @@ namespace SystemMonitorAPI.Services
                     while (true)
                     {
                         var request = new GetBulkRequestMessage(
-                            VersionCode.V3,
-                            Messenger.NextMessageId,
-                            Messenger.NextRequestId,
-                            new OctetString(cred.Username),
-                            new OctetString("root"),
-                            0,
-                            maxRepetitions,
-                            new List<Variable> { new Variable(currentOid) },
-                            priv,
-                            Messenger.MaxMessageSize,
-                            report);
+    VersionCode.V3,
+    Messenger.NextMessageId,
+    Messenger.NextRequestId,
+    new OctetString(cred.Username),
+    OctetString.Empty,              // ✅ FIX: Use the default empty context
+    0,
+    maxRepetitions,
+    new List<Variable> { new Variable(currentOid) },
+    priv,
+    Messenger.MaxMessageSize,
+    report);
 
                         ISnmpMessage response;
                         try
@@ -555,6 +555,7 @@ namespace SystemMonitorAPI.Services
         public const string IfOperStatus = "1.3.6.1.2.1.2.2.1.8";
         public const string IfHighSpeed = "1.3.6.1.2.1.31.1.1.1.15";
         public const string IfAlias = "1.3.6.1.2.1.31.1.1.1.18";
+        public const string IfName = "1.3.6.1.2.1.31.1.1.1.1";
 
         public const string IpAdEntAddr = "1.3.6.1.2.1.4.20.1.1";
         public const string IpAdEntIfIndex = "1.3.6.1.2.1.4.20.1.2";
@@ -593,5 +594,55 @@ namespace SystemMonitorAPI.Services
         public const string FgSysVersion = "1.3.6.1.4.1.12356.101.4.1.1.0"; // FortiOS firmware version
         public const string FgSysCpuUsage = "1.3.6.1.4.1.12356.101.4.1.3.0"; // CPU %
         public const string FgSysMemUsage = "1.3.6.1.4.1.12356.101.4.1.4.0"; // Memory %
+
+        // Bridge MIB (MAC Address Table)
+        public const string Dot1dTpFdbAddress = "1.3.6.1.2.1.17.4.3.1.1";     // The MAC Address
+        public const string Dot1dTpFdbPort = "1.3.6.1.2.1.17.4.3.1.2";        // The Bridge Port it lives on
+        public const string Dot1dBasePortIfIndex = "1.3.6.1.2.1.17.1.4.1.2";  // Maps Bridge Port -> IfIndex
+
+        // AP table (wlsxApTable) — indexed by AP MAC (BSSID)
+        public const string WlsxApName = "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.3";
+        public const string WlsxApIpAddress = "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.2";
+        public const string WlsxApLocation = "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.19";
+        public const string WlsxApNumClients = "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.37";
+        public const string WlsxApStatus = "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.6";  // 1=up 2=down
+
+        // Station table (wlsxStaTable) — indexed by client MAC
+        public const string WlsxStaMacAddress = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.1";
+        public const string WlsxStaIpAddress = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.3";
+        public const string WlsxStaAssociatedAP = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.11";
+        public const string WlsxStaEssid = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.4";
+        public const string WlsxStaSignalStrength = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.23";
+        public const string WlsxStaPhyType = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.6";
+        public const string WlsxStaUpTime = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.10";
+        public const string WlsxStaBssid = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.2";
+
+        // ── Aruba Controller — wlsxSwitchAccessPointTable ─────────────────────────
+        // ArubaOS 6.x path (most common on physical controllers)
+        public const string WlsxApTable_v6 = "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1";
+        public const string WlsxApName_v6 = "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.3";
+        public const string WlsxApIpAddress_v6 = "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.2";
+
+        // ArubaOS 8.x path (newer controllers / Mobility Master)
+        public const string WlsxApTable_v8 = "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1";
+        public const string WlsxApName_v8 = "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.3";
+
+        // ── Station table ──────────────────────────────────────────────────────────
+        // Standard path — works on both 6.x and 8.x
+        public const string WlsxStaTable = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1";
+        //public const string WlsxStaAssociatedAP = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.11";
+        //public const string WlsxStaIpAddress = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.3";
+        //public const string WlsxStaEssid = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.4";
+        //public const string WlsxStaSignalStrength = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.23";
+        //public const string WlsxStaPhyType = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.6";
+        //public const string WlsxStaUpTime = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.10";
+        public const string WlsxStaName = "1.3.6.1.4.1.14823.2.2.1.4.1.2.1.22"; // client hostname if known
+
+        // ── Alternative: wlsxWlanAPTable (some firmware versions) ─────────────────
+        public const string WlsxWlanApName = "1.3.6.1.4.1.14823.2.2.1.1.3.3.1.2";
+        public const string WlsxWlanApIp = "1.3.6.1.4.1.14823.2.2.1.1.3.3.1.4";
+        public const string WlsxWlanApNumClients = "1.3.6.1.4.1.14823.2.2.1.1.3.3.1.23";
+        public const string WlsxWlanApStatus = "1.3.6.1.4.1.14823.2.2.1.1.3.3.1.19";
+        public const string WlsxWlanApLocation = "1.3.6.1.4.1.14823.2.2.1.1.3.3.1.6";
     }
 }

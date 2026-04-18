@@ -22,6 +22,7 @@
         /// Quick ICMP ping timeout ms before SNMP attempt
         /// </summary>
         public int PingTimeoutMs { get; set; } = 500;
+        public List<ArubaControllerConfig> ArubaControllers { get; set; } = new();
     }
 
     public class IpPoolConfig
@@ -106,5 +107,13 @@
         /// </summary>
         public int Retries { get; set; } = 1;
         public string DisplayLabel => Label ?? Username;
+    }
+
+    public class ArubaControllerConfig
+    {
+        public string Name { get; set; } = "";
+        public string IpAddress { get; set; } = "";
+        public string? SnmpCredentialLabel { get; set; }
+        public bool Enabled { get; set; } = true;
     }
 }

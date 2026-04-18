@@ -87,5 +87,8 @@ namespace SystemMonitorAPI.Models
 
         [ForeignKey("RemoteSwitchId")]
         public virtual SmmSwitch? RemoteSwitch { get; set; }
+
+        [Column("ISENDPOINT")]
+        public bool IsEndpoint { get; set; } = false;
     }
 }

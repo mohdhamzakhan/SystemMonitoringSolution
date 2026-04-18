@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { CheckSquare, Square, AlertCircle, ArrowUpDown } from "lucide-react";
 import Navbar from "./Navbar";
-import useAuth from "./useAuth";
 import { APP_CONSTANTS } from "../store";
 
 const AssignUpdatePage = () => {
-  useAuth();
   const [updates, setUpdates] = useState<any[]>([]);
   const [hostnames, setHostnames] = useState<
     { systemID: string; hostname: string; username: string; lastUpdateDate?: string }[]

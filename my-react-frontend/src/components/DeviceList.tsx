@@ -28,7 +28,6 @@ interface Device {
 }
 
 const DeviceList: React.FC = () => {
-  useAuth();
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);

@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Options;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Text.RegularExpressions;
 using SystemMonitorAPI.Configuration;
 using SystemMonitorAPI.Model;
 using SystemMonitorAPI.Models;
@@ -13,6 +14,7 @@ namespace SystemMonitorAPI.Services
         Task<ScanResult> ScanAllPoolsAsync(CancellationToken ct = default);
         Task<ScanResult> ScanPoolAsync(string poolName, CancellationToken ct = default);
         Task<ScanResult> ScanSingleIpAsync(string ipAddress, string? poolName = null, CancellationToken ct = default);
+        Task<List<EndpointDto>> GetEndpointsAsync(int? switchId = null, CancellationToken ct = default);
     }
 
     public class NetworkScanService : INetworkScanService
@@ -177,6 +179,8 @@ namespace SystemMonitorAPI.Services
                 else
                     await ScanInterfacesAsync(sw, db, effectivePool, ct);
 
+               // await ScanMacAddressTableAsync(sw, db, effectivePool, ct);
+
                 // Replace the protocol dispatch block in ScanSingleIpAsync:
 
                 var neighborProtocol = await DetectNeighborProtocolAsync(sw.IpAddress, effectivePool);
@@ -247,6 +251,79 @@ namespace SystemMonitorAPI.Services
 
             return matchedPool?.Name ?? originalPoolName;
         }
+        private async Task ScanMacAddressTableAsync(
+    SmmSwitch sw, SystemMonitorContext db, string? poolName, CancellationToken ct)
+        {
+            _logger.LogDebug("Scanning MAC Address table for {IP}", sw.IpAddress);
+
+            // 1. Get MACs to Bridge Ports
+            var fdbPorts = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.Dot1dTpFdbPort, maxRepetitions: 20, poolName: poolName);
+
+            // 2. Get Bridge Ports to IfIndexes
+            var basePortIfIndexes = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.Dot1dBasePortIfIndex, maxRepetitions: 20, poolName: poolName);
+
+            if (!fdbPorts.Any() || !basePortIfIndexes.Any())
+            {
+                _logger.LogDebug("No Bridge MIB data returned for {IP}", sw.IpAddress);
+                return;
+            }
+
+            // Build a lookup dictionary: BridgePort ID -> IfIndex
+            var bridgeToIfIndex = new Dictionary<string, int>();
+            foreach (var kv in basePortIfIndexes)
+            {
+                var bridgePortStr = kv.Key.Split('.').Last();
+                if (int.TryParse(kv.Value, out int ifIndex))
+                {
+                    bridgeToIfIndex[bridgePortStr] = ifIndex;
+                }
+            }
+
+            // Parse the FDB table
+            foreach (var kv in fdbPorts)
+            {
+                // The OID suffix is the MAC address in decimal format (e.g., .108.3.181.242.106.3)
+                var oidSuffix = kv.Key.Replace($"{OidConstants.Dot1dTpFdbPort}.", "");
+                var macBytes = oidSuffix.Split('.').Select(b => byte.Parse(b)).ToArray();
+                var macAddress = string.Join(":", macBytes.Select(b => b.ToString("X2")));
+
+                var bridgePort = kv.Value;
+
+                // Correlate Bridge Port -> IfIndex
+                if (bridgeToIfIndex.TryGetValue(bridgePort, out int ifIndex))
+                {
+                    // Find the physical port in our database model
+                    var localPort = sw.Ports.FirstOrDefault(p => p.IfIndex == ifIndex);
+
+                    if (localPort != null)
+                    {
+                        // We now know this MAC address is connected to this physical port!
+                        // We can save this as an endpoint.
+
+                        // Skip if this MAC is already tracked via LLDP/CDP
+                        bool alreadyExists = await db.SwitchNeighbors.AnyAsync(n =>
+                            n.LocalSwitchId == sw.SwitchId &&
+                            n.RemoteChassisId == macAddress, ct);
+
+                        if (!alreadyExists)
+                        {
+                            db.SwitchNeighbors.Add(new SmmSwitchNeighbor
+                            {
+                                LocalSwitchId = sw.SwitchId,
+                                LocalPortId = localPort.PortId,
+                                LocalPortName = localPort.PortName,
+                                RemoteChassisId = macAddress,
+                                Protocol = "FDB",       // Indicate this was found via MAC table
+                                IsEndpoint = true,      // It's an endpoint system
+                                LastSeen = DateTime.Now
+                            });
+                        }
+                    }
+                }
+            }
+
+            await db.SaveChangesAsync(ct);
+        }
 
         // ── Interfaces ────────────────────────────────────────────────────────
 
@@ -258,12 +335,18 @@ namespace SystemMonitorAPI.Services
             // causes usmStatsDecryptionErrors because each call does its own
             // engine-time discovery, and they race against each other's timing window.
             // Sequential calls reuse the cached credential and avoid this entirely.
-            var descrs = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfDescr, poolName: poolName);
-            var types = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfType, poolName: poolName);
+            // Update your calls in ScanFortinetInterfacesAsync to include maxRepetitions: 10
+            var descrs = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfDescr, maxRepetitions: 10, poolName: poolName);
+            var opers = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfOperStatus, maxRepetitions: 10, poolName: poolName);
+            var admins = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfAdminStatus, maxRepetitions: 10, poolName: poolName);
+            var speeds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfHighSpeed, maxRepetitions: 10, poolName: poolName);
+            var types = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfType, maxRepetitions: 10, poolName: poolName);
+            //var descrs = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfName, poolName: poolName);
+            //var types = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfType, poolName: poolName);
             var macs = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfPhysAddress, poolName: poolName);
-            var speeds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfHighSpeed, poolName: poolName);
-            var admins = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfAdminStatus, poolName: poolName);
-            var opers = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfOperStatus, poolName: poolName);
+            //var speeds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfHighSpeed, poolName: poolName);
+            //var admins = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfAdminStatus, poolName: poolName);
+            //var opers = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfOperStatus, poolName: poolName);
             var aliases = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.IfAlias, poolName: poolName);
 
             foreach (var kv in descrs)
@@ -325,11 +408,10 @@ namespace SystemMonitorAPI.Services
      SmmSwitch sw, SystemMonitorContext db, string? poolName, CancellationToken ct)
         {
             // Fetch all four LLDP remote columns we need
-            var sysNames = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemSysName, poolName: poolName);
-            var portIds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemPortId, poolName: poolName);
-            var portDescs = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemPortDesc, poolName: poolName);
-            var chassisIds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemChassisId, poolName: poolName);
-
+            var sysNames = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemSysName, maxRepetitions: 15, poolName: poolName);
+            var portIds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemPortId, maxRepetitions: 15, poolName: poolName);
+            var portDescs = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemPortDesc, maxRepetitions: 15, poolName: poolName);
+            var chassisIds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemChassisId, maxRepetitions: 15, poolName: poolName);
             if (!sysNames.Any()) return;
 
             var existing = await db.SwitchNeighbors
@@ -380,6 +462,7 @@ namespace SystemMonitorAPI.Services
                     RemotePortName = remotePort,
                     RemoteChassisId = chassisId != null ? FormatMac(chassisId) : null,
                     Protocol = "LLDP",
+                    IsEndpoint = IsLldpEndpoint(kv.Value, remotePort),  // ← classify
                     LastSeen = DateTime.Now
                 });
 
@@ -389,7 +472,36 @@ namespace SystemMonitorAPI.Services
 
             await db.SaveChangesAsync(ct);
         }
+        /// <summary>
+        /// Classifies an LLDP neighbor as an endpoint (AP, phone, PC)
+        /// vs a managed switch. Switches always have readable port names
+        /// like "Gi1/0/1". Endpoints send MACs or blank port IDs.
+        /// </summary>
+        private static bool IsLldpEndpoint(string? sysName, string? portName)
+        {
+            // If port resolved to a known switch port format → it's a switch
+            if (!string.IsNullOrWhiteSpace(portName) && IsKnownSwitchPortFormat(portName))
+                return false;
 
+            // MAC-only port name → endpoint (phone, AP, PC)
+            if (portName != null &&
+                System.Text.RegularExpressions.Regex.IsMatch(portName,
+                    @"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$"))
+                return true;
+
+            // Device name hints
+            var name = (sysName ?? "").ToUpperInvariant();
+            if (name.Contains("-AP") || name.Contains("AP-") || name.Contains("AIR-") ||
+                name.Contains("SEP") || name.Contains("CP-") ||
+                name.Contains("-PC") || name.Contains("PHONE"))
+                return true;
+
+            // Blank/unresolvable port with no switch-like name → treat as endpoint
+            if (string.IsNullOrWhiteSpace(portName))
+                return true;
+
+            return false;
+        }
         // ── LLDP port name resolver ───────────────────────────────────────────────────
         // LldpRemPortDesc is a human-readable string but is blank on many devices.
         // LldpRemPortId contains the actual port identifier but its encoding depends
@@ -442,10 +554,9 @@ namespace SystemMonitorAPI.Services
         private async Task ScanCdpNeighborsAsync(
     SmmSwitch sw, SystemMonitorContext db, string? poolName, CancellationToken ct)
         {
-            var deviceIds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.CdpCacheDeviceId, poolName: poolName);
-            var devicePorts = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.CdpCacheDevicePort, poolName: poolName);
-            var addresses = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.CdpCacheAddress, poolName: poolName);
-
+            var deviceIds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.CdpCacheDeviceId, maxRepetitions: 15, poolName: poolName);
+            var devicePorts = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.CdpCacheDevicePort, maxRepetitions: 15, poolName: poolName);
+            var addresses = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.CdpCacheAddress, maxRepetitions: 15, poolName: poolName);
             if (!deviceIds.Any()) return;
 
             var existing = await db.SwitchNeighbors
@@ -534,22 +645,24 @@ namespace SystemMonitorAPI.Services
         //        c. Nothing readable recovered                   → SKIP (endpoint)
         private static bool IsEndpointOnlyEntry(string? rawPort, string? decodedPort)
         {
-            // No port info — keep the neighbor, just won't have a port name
+            // No port info at all — keep the neighbor, just no port name
             if (string.IsNullOrWhiteSpace(rawPort))
                 return false;
 
-            // Fully printable raw value — check if it's a real port format
+            // Fully printable raw value — always a real port name, never skip
             if (rawPort.All(c => c >= 0x20 && c <= 0x7E))
-                return !IsKnownSwitchPortFormat(rawPort.Trim());
-
-            // Binary-encoded port field.
-            // Check 1: did decoding produce a known switch port format?
-            if (!string.IsNullOrWhiteSpace(decodedPort) &&
-                decodedPort.All(c => c >= 0x20 && c <= 0x7E) &&
-                IsKnownSwitchPortFormat(decodedPort.Trim()))
                 return false;
 
-            // Check 2: extract printable ASCII run from the raw bytes
+            // Raw bytes are non-printable (binary-encoded port field).
+            // Check if decoding recovered anything useful.
+
+            // Decoded to a known switch port pattern → keep
+            if (!string.IsNullOrWhiteSpace(decodedPort) &&
+                decodedPort.All(c => c >= 0x20 && c <= 0x7E) &&
+                IsKnownSwitchPortFormat(decodedPort))
+                return false;
+
+            // Try to extract any printable run of 2+ chars from the raw bytes
             byte[] bytes;
             try { bytes = System.Text.Encoding.Latin1.GetBytes(rawPort); }
             catch { return true; }
@@ -559,13 +672,11 @@ namespace SystemMonitorAPI.Services
                      .Select(b => (char)b)
                      .ToArray()).Trim();
 
-            // FIX: don't just check length — the extracted run must ALSO match
-            // a known switch port format. "p[0" has 3 chars but is not a port name.
-            // "gi" alone (2 chars) is not enough either without a following digit.
-            if (printableRun.Length >= 2 && IsKnownSwitchPortFormat(printableRun))
+            // Got a readable string of 2+ chars → likely a port name, keep it
+            if (printableRun.Length >= 2)
                 return false;
 
-            // Nothing that looks like a switch port — endpoint, skip it
+            // Nothing readable at all → endpoint binary blob → skip
             return true;
         }
 
@@ -617,6 +728,18 @@ namespace SystemMonitorAPI.Services
 
             return false;
         }
+
+        // ── Endpoint detection ────────────────────────────────────────────────────────
+        // Returns true ONLY when we are certain this is an end-device (PC, phone, AP)
+        // and NOT a switch-to-switch link.
+        //
+        // Decision tree:
+        //   1. Raw port is null/empty           → keep (some switches omit port)
+        //   2. Raw port is fully printable      → keep always (readable = switch port)
+        //   3. Raw port has non-printable bytes (binary):
+        //        a. Decoded result is a known switch port format → keep
+        //        b. A printable ASCII run of 2+ chars extracted  → keep
+        //        c. Nothing readable recovered                   → SKIP (endpoint)
 
         // ── Switch port name detector ─────────────────────────────────────────────────
         // Returns true only if the string looks like a real network device port.
@@ -1027,10 +1150,41 @@ namespace SystemMonitorAPI.Services
 
             await db.SaveChangesAsync(ct);
         }
-   
+
+        public async Task<List<EndpointDto>> GetEndpointsAsync(
+            int? switchId = null, CancellationToken ct = default)
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+            var query = db.SwitchNeighbors
+                .Include(n => n.LocalSwitch)
+                .Where(n => n.IsEndpoint);
+
+            if (switchId.HasValue)
+                query = query.Where(n => n.LocalSwitchId == switchId.Value);
+
+            var rows = await query
+                .OrderBy(n => n.LocalSwitch!.Hostname)
+                .ThenBy(n => n.LocalPortName)
+                .ToListAsync(ct);
+
+            return rows.Select(n => new EndpointDto
+            {
+                SwitchId = n.LocalSwitchId,
+                SwitchHostname = n.LocalSwitch?.Hostname ?? n.LocalSwitchId.ToString(),
+                SwitchIp = n.LocalSwitch?.IpAddress,
+                LocalPort = n.LocalPortName,
+                DeviceName = n.RemoteSysName,
+                DeviceType = InferDeviceType(n.RemoteSysName, n.RemotePortName),
+                DevicePort = n.RemotePortName,
+                DeviceIp = n.RemoteIp,
+                DeviceMac = n.RemoteChassisId,
+                Protocol = n.Protocol,
+                LastSeen = n.LastSeen.HasValue ? n.LastSeen.Value : DateTime.Now
+            }).ToList();
+        }
 
 
-       
         private static string FormatMac(string raw)
         {
             var hex = new string(raw.Where(c => "0123456789ABCDEFabcdef".Contains(c)).ToArray());
@@ -1045,6 +1199,27 @@ namespace SystemMonitorAPI.Services
             if (long.TryParse(raw.Split(' ')[0], out long ticks))
                 return ticks / 100;
             return 0;
+        }
+
+
+
+        private static string InferDeviceType(string? sysName, string? portName)
+        {
+            var name = (sysName ?? "").ToUpperInvariant();
+            var port = (portName ?? "").ToUpperInvariant();
+
+            if (name.Contains("SEP") || name.Contains("CP-") || port.Contains("PHONE"))
+                return "IP Phone";
+            if (name.Contains("-AP") || name.Contains("AP-") || name.Contains("AIR-"))
+                return "Access Point";
+            if (name.Contains("-PC") || name.Contains("LAPTOP") || name.Contains("DESKTOP"))
+                return "PC";
+            if (name.Contains("PRINTER") || name.Contains("PRN"))
+                return "Printer";
+            if (port.Contains("DISPLAY") || name.Contains("STANDEE"))
+                return "Display";
+
+            return "Endpoint";
         }
     }
 
@@ -1063,5 +1238,20 @@ namespace SystemMonitorAPI.Services
             Errors += other.Errors;
             Messages.AddRange(other.Messages);
         }
+    }
+
+    public class EndpointDto
+    {
+        public int SwitchId { get; set; }
+        public string? SwitchHostname { get; set; }
+        public string? SwitchIp { get; set; }
+        public string? LocalPort { get; set; }   // switch port it's plugged into
+        public string? DeviceName { get; set; }
+        public string? DeviceType { get; set; }   // "IP Phone", "Access Point", "PC" ...
+        public string? DevicePort { get; set; }
+        public string? DeviceIp { get; set; }
+        public string? DeviceMac { get; set; }
+        public string? Protocol { get; set; }
+        public DateTime LastSeen { get; set; }
     }
 }

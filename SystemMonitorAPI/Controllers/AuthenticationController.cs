@@ -92,7 +92,6 @@ namespace SystemMonitorAPI.Controllers
         }
 
         [HttpGet("by-user/{username}")]
-        [Authorize]
         public IActionResult GetDeviceByUser(string username)
         {
             // Replace with your actual data access logic
@@ -121,7 +120,7 @@ namespace SystemMonitorAPI.Controllers
                 _config["Jwt:Issuer"],
                 _config["Jwt:Audience"],
                 claims,
-                expires: DateTime.Now.AddHours(2),
+                expires: DateTime.Now.AddHours(48),
                 signingCredentials: credentials
             );
 

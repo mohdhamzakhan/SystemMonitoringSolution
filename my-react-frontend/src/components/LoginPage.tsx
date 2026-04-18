@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { APP_CONSTANTS } from "../store";
+import { saveSession, isSessionValid, getRole } from "../auth";
 
 export default function LoginPage() {
     const [username, setUsername] = useState("");
@@ -9,22 +10,46 @@ export default function LoginPage() {
     const [error, setError] = useState<string | null>(null);
     const [adUsers, setAdUsers] = useState<string[]>([]);
     const [loadingUsers, setLoadingUsers] = useState(true);
+    const [showSuggestions, setShowSuggestions] = useState(false);  // ← new
     const navigate = useNavigate();
 
-    // Fetch AD users for dropdown on mount
+    // ✅ Fix 1 — useEffect redirect (existing session)
+    useEffect(() => {
+        if (isSessionValid()) {
+            const role = getRole();
+            if (role === "Admin") {
+                navigate("/MainPage", { replace: true });
+            } else {
+                const token = localStorage.getItem("auth_token");
+                if (token) {
+                    const decoded = JSON.parse(atob(token.split(".")[1]));
+                    const savedUsername = decoded["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"];
+                    if (savedUsername) {
+                        axios.get(
+                            APP_CONSTANTS.API_BASE_URL + `/api/devices/by-user/${savedUsername}`,
+                            { headers: { Authorization: `Bearer ${token}` } }
+                        ).then(res => {
+                            const hostname = res.data?.hostname;
+                            if (hostname) {
+                                localStorage.setItem("user_hostname", hostname); // ✅ save it
+                                navigate(`/device/${hostname}`, { replace: true });
+                            }
+                        }).catch(() => { });
+                    }
+                }
+            }
+        }
+    }, []);
+
     useEffect(() => {
         const fetchADUsers = async () => {
             try {
                 const response = await axios.get(
                     APP_CONSTANTS.API_BASE_URL + "/api/auth/ad-users"
                 );
-
-                console.log("API Response:", response.data);
-
                 const users = Array.isArray(response.data)
                     ? response.data
                     : response.data?.data || response.data?.users || [];
-
                 setAdUsers(users);
             } catch (err) {
                 console.error("Failed to load AD users", err);
@@ -32,16 +57,19 @@ export default function LoginPage() {
                 setLoadingUsers(false);
             }
         };
-
         fetchADUsers();
     }, []);
+
+    const filteredUsers = adUsers.filter(user =>
+        user.toLowerCase().includes(username.toLowerCase())
+    );
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
 
         if (!username) {
-            setError("Please select a username.");
+            setError("Please enter a username.");
             return;
         }
 
@@ -52,18 +80,15 @@ export default function LoginPage() {
             );
 
             const { token } = response.data;
-            localStorage.setItem("jwt", token);
+            saveSession(token);
 
             const decodedToken = JSON.parse(atob(token.split(".")[1]));
             const userRole =
-                decodedToken[
-                "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"
-                ];
+                decodedToken["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
 
             if (userRole === "Admin") {
                 navigate("/MainPage");
             } else {
-                // Fetch the user's device hostname, then redirect externally
                 try {
                     const deviceResponse = await axios.get(
                         APP_CONSTANTS.API_BASE_URL + `/api/devices/by-user/${username}`,
@@ -71,7 +96,8 @@ export default function LoginPage() {
                     );
                     const hostname = deviceResponse.data?.hostname;
                     if (hostname) {
-                        window.location.href = `http://10.235.20.49:5296/device/${hostname}`;
+                        localStorage.setItem("user_hostname", hostname); // ✅ save it
+                        navigate(`/device/${hostname}`);
                     } else {
                         setError("No device found for your account.");
                     }
@@ -83,7 +109,6 @@ export default function LoginPage() {
             setError("Invalid credentials. Please try again.");
         }
     };
-
     return (
         <div className="flex justify-center items-center min-h-screen bg-gray-100">
             <div className="bg-white p-8 rounded-lg shadow-lg w-96">
@@ -94,7 +119,7 @@ export default function LoginPage() {
                 )}
 
                 <form onSubmit={handleLogin}>
-                    {/* Username Dropdown */}
+                    {/* ✅ Fix 2: Typeable combobox replacing <select> */}
                     <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                             Username
@@ -102,19 +127,39 @@ export default function LoginPage() {
                         {loadingUsers ? (
                             <p className="text-sm text-gray-400">Loading users...</p>
                         ) : (
-                            <select
-                                className="mt-1 p-2 w-full border rounded bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                                required
-                            >
-                                <option value="">-- Select your username --</option>
-                                {(Array.isArray(adUsers) ? adUsers : []).map((user) => (
-                                    <option key={user} value={user}>
-                                        {user}
-                                    </option>
-                                ))}
-                            </select>
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    className="mt-1 p-2 w-full border rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                    placeholder="Type or select username"
+                                    value={username}
+                                    onChange={(e) => {
+                                        setUsername(e.target.value);
+                                        setShowSuggestions(true);
+                                    }}
+                                    onFocus={() => setShowSuggestions(true)}
+                                    onBlur={() =>
+                                        setTimeout(() => setShowSuggestions(false), 150)
+                                    }
+                                    required
+                                />
+                                {showSuggestions && filteredUsers.length > 0 && (
+                                    <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded mt-1 max-h-48 overflow-y-auto shadow-lg">
+                                        {filteredUsers.map((user) => (
+                                            <li
+                                                key={user}
+                                                className="px-3 py-2 cursor-pointer hover:bg-blue-50 text-gray-800 text-sm"
+                                                onMouseDown={() => {
+                                                    setUsername(user);
+                                                    setShowSuggestions(false);
+                                                }}
+                                            >
+                                                {user}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
                         )}
                     </div>
 

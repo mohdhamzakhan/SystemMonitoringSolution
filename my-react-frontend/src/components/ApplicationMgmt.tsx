@@ -20,7 +20,6 @@ import {
     Clock
 } from "lucide-react";
 import Navbar from "./Navbar";
-import useAuth from "./useAuth";
 import { APP_CONSTANTS } from "../store";
 
 interface Hostname {
@@ -49,7 +48,6 @@ interface SortConfig {
 }
 
 const UpdateManagementPage = () => {
-    useAuth();
 
     // Core state
     const [updates, setUpdates] = useState<Update[]>([]);
