@@ -405,64 +405,126 @@ namespace SystemMonitorAPI.Services
         // ── LLDP ──────────────────────────────────────────────────────────────
 
         private async Task ScanLldpNeighborsAsync(
-     SmmSwitch sw, SystemMonitorContext db, string? poolName, CancellationToken ct)
+     SmmSwitch sw,
+     SystemMonitorContext db,
+     string? poolName,
+     CancellationToken ct)
         {
-            // Fetch all four LLDP remote columns we need
-            var sysNames = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemSysName, maxRepetitions: 15, poolName: poolName);
-            var portIds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemPortId, maxRepetitions: 15, poolName: poolName);
-            var portDescs = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemPortDesc, maxRepetitions: 15, poolName: poolName);
-            var chassisIds = await _snmp.GetBulkAsync(sw.IpAddress!, OidConstants.LldpRemChassisId, maxRepetitions: 15, poolName: poolName);
-            if (!sysNames.Any()) return;
+            // Fetch LLDP tables
+            var sysNames = await _snmp.GetBulkAsync(
+                sw.IpAddress!,
+                OidConstants.LldpRemSysName,
+                maxRepetitions: 15,
+                poolName: poolName);
 
+            var portIds = await _snmp.GetBulkAsync(
+                sw.IpAddress!,
+                OidConstants.LldpRemPortId,
+                maxRepetitions: 15,
+                poolName: poolName);
+
+            var portDescs = await _snmp.GetBulkAsync(
+                sw.IpAddress!,
+                OidConstants.LldpRemPortDesc,
+                maxRepetitions: 15,
+                poolName: poolName);
+
+            var chassisIds = await _snmp.GetBulkAsync(
+                sw.IpAddress!,
+                OidConstants.LldpRemChassisId,
+                maxRepetitions: 15,
+                poolName: poolName);
+
+            // IMPORTANT:
+            // Some devices do NOT populate lldpRemSysName.
+            // So use union of all keys instead of depending only on sysNames.
+            var allKeys = sysNames.Keys
+                .Union(portIds.Keys)
+                .Union(portDescs.Keys)
+                .Union(chassisIds.Keys)
+                .Distinct()
+                .ToList();
+
+            if (!allKeys.Any())
+            {
+                _logger.LogDebug("No LLDP neighbors found on {IP}", sw.IpAddress);
+                return;
+            }
+
+            // Remove old LLDP rows for this switch
             var existing = await db.SwitchNeighbors
                 .Where(n => n.LocalSwitchId == sw.SwitchId && n.Protocol == "LLDP")
                 .ToListAsync(ct);
+
             db.SwitchNeighbors.RemoveRange(existing);
 
-            foreach (var kv in sysNames)
+            foreach (var key in allKeys)
             {
-                // LLDP OID suffix format: {timeMark}.{localPortNum}.{remoteIndex}
-                // e.g. key = "1.0.8802.1.1.2.1.4.1.1.9.0.47.1"
-                //      parts[^3]=0  parts[^2]=47  parts[^1]=1
-                var parts = kv.Key.Split('.');
-                if (parts.Length < 3) continue;
+                // OID suffix format:
+                // ...timeMark.localPort.remoteIndex
+                var parts = key.Split('.');
+                if (parts.Length < 3)
+                    continue;
 
-                // localPortNum is the ifIndex of the LOCAL port on this switch
-                if (!int.TryParse(parts[^2], out int localPortNum)) continue;
+                if (!int.TryParse(parts[^2], out int localPortNum))
+                    continue;
 
-                // The suffix used to look up other columns for this same neighbor
                 var suffix = $"{parts[^3]}.{parts[^2]}.{parts[^1]}";
 
                 var localPort = sw.Ports.FirstOrDefault(p => p.IfIndex == localPortNum);
 
-                // Resolve remote port name — try in order of reliability:
-                //   1. LldpRemPortDesc  — human-readable alias (e.g. "GigabitEthernet1/0/1")
-                //                         Often blank on CBS350, Aruba, APs
-                //   2. LldpRemPortId    — always present; contains port ID subtype value
-                //                         For switches: "GigabitEthernet1/0/1" or "gi24"
-                //                         For APs/phones: MAC address bytes (binary)
-                //   3. Fallback to null — better than showing garbage
+                sysNames.TryGetValue(key, out var sysName);
 
-                portDescs.TryGetValue($"{OidConstants.LldpRemPortDesc}.{suffix}", out var remotePortDesc);
-                portIds.TryGetValue($"{OidConstants.LldpRemPortId}.{suffix}", out var remotePortId);
-                chassisIds.TryGetValue($"{OidConstants.LldpRemChassisId}.{suffix}", out var chassisId);
+                portIds.TryGetValue(
+                    $"{OidConstants.LldpRemPortId}.{suffix}",
+                    out var remotePortId);
 
+                portDescs.TryGetValue(
+                    $"{OidConstants.LldpRemPortDesc}.{suffix}",
+                    out var remotePortDesc);
+
+                chassisIds.TryGetValue(
+                    $"{OidConstants.LldpRemChassisId}.{suffix}",
+                    out var chassisId);
+
+                // Resolve readable remote port
                 var remotePort = ResolveLldpPortName(remotePortDesc, remotePortId);
 
+                // IMPORTANT:
+                // If SysName blank, fallback to PortId then ChassisId
+                var identity =
+                    !string.IsNullOrWhiteSpace(sysName) ? sysName.Trim() :
+                    !string.IsNullOrWhiteSpace(remotePortId) ? remotePortId.Trim() :
+                    !string.IsNullOrWhiteSpace(chassisId) ? FormatMac(chassisId) :
+                    null;
+
+                if (string.IsNullOrWhiteSpace(identity))
+                    continue;
+
                 _logger.LogDebug(
-                    "LLDP neighbor on {IP} port {Local}: remote={Remote} port='{Port}' chassis={Chassis}",
-                    sw.IpAddress, localPort?.PortName, kv.Value, remotePort, chassisId);
+                    "LLDP {IP} local={LocalPort} remote={Remote} port={RemotePort} mac={Mac}",
+                    sw.IpAddress,
+                    localPort?.PortName,
+                    identity,
+                    remotePort,
+                    chassisId);
 
                 db.SwitchNeighbors.Add(new SmmSwitchNeighbor
                 {
                     LocalSwitchId = sw.SwitchId,
                     LocalPortId = localPort?.PortId,
                     LocalPortName = localPort?.PortName,
-                    RemoteSysName = kv.Value,
+
+                    // Use resolved identity
+                    RemoteSysName = identity,
+
                     RemotePortName = remotePort,
-                    RemoteChassisId = chassisId != null ? FormatMac(chassisId) : null,
+                    RemoteChassisId = !string.IsNullOrWhiteSpace(chassisId)
+                        ? FormatMac(chassisId)
+                        : null,
+
                     Protocol = "LLDP",
-                    IsEndpoint = IsLldpEndpoint(kv.Value, remotePort),  // ← classify
+                    IsEndpoint = IsLldpEndpoint(identity, remotePort),
                     LastSeen = DateTime.Now
                 });
 

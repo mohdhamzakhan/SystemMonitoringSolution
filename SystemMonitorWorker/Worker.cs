@@ -274,7 +274,7 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {{
 $action = New-ScheduledTaskAction -Execute '""{scriptPath}'"" ""
 
 # Create the trigger (every 15 minutes)
-$trigger = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes 15) -Once -At (Get-Date).AddMinutes(1)
+$trigger = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes ) -Once -At (Get-Date).AddMinutes(1)
 
 
 # Define task settings

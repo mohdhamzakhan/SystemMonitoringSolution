@@ -14,6 +14,7 @@ import WarrantyManagement from "./WarrantyManagement.tsx";
 import VulnerabilityDashboard from "./VulnerabilityDashboard.tsx";
 import NetworkDashboard from "./Networkdashboard.jsx";
 import ProtectedRoute from "../ProtectedRoute.tsx";
+import FolderTreePage from "./FolderTree.jsx"
 
 const Application = () => (
     <Router>
@@ -39,6 +40,7 @@ const Application = () => (
             <Route path="/warranty-management" element={<ProtectedRoute adminOnly><WarrantyManagement /></ProtectedRoute>} />
             <Route path="/vulnerability-dashboard" element={<ProtectedRoute adminOnly><VulnerabilityDashboard /></ProtectedRoute>} />
             <Route path="/NetworkDashboard" element={<ProtectedRoute adminOnly><NetworkDashboard /></ProtectedRoute>} />
+            <Route path="/folder" element={<ProtectedRoute adminOnly><FolderTreePage /></ProtectedRoute>} />
         </Routes>
     </Router>
 );

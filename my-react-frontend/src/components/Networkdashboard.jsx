@@ -24,6 +24,25 @@ const statusDot = (reachable) =>
         {reachable ? "● Online" : "● Offline"}
     </span>;
 
+const createSwitchTooltip = (n) => {
+    const div = document.createElement("div");
+    const title = document.createElement("div");
+    title.textContent = n.label || "Unknown";
+    title.style.fontWeight = "600";
+    title.style.marginBottom = "4px";
+    const vendorModel = document.createElement("div");
+    vendorModel.textContent = `${n.vendor || "—"} ${n.model || ""}`.trim();
+    const ip = document.createElement("div");
+    ip.textContent = `IP: ${n.ipAddress || "—"}`;
+    const layer = document.createElement("div");
+    layer.textContent = `Layer: ${n.switchLayer || "—"}`;
+    div.appendChild(title);
+    div.appendChild(vendorModel);
+    div.appendChild(ip);
+    div.appendChild(layer);
+    return div;
+};
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function NetworkDashboard() {
     const [tab, setTab] = useState("list");
@@ -35,6 +54,7 @@ export default function NetworkDashboard() {
     const [search, setSearch] = useState("");
     const [filterVendor, setFilterVendor] = useState("All");
     const [filterLayer, setFilterLayer] = useState("All");
+    const [activeFilter, setActiveFilter] = useState("ALL");
 
     const fetchSwitches = useCallback(async () => {
         setLoading(true);
@@ -120,16 +140,46 @@ export default function NetworkDashboard() {
     };
 
     const filteredSwitches = switches.filter(sw => {
-        const matchSearch = !search ||
+
+        // 🔍 Search
+        const matchSearch =
+            !search ||
             sw.hostname?.toLowerCase().includes(search.toLowerCase()) ||
             sw.ipAddress?.includes(search) ||
             sw.model?.toLowerCase().includes(search.toLowerCase());
-        const matchVendor = filterVendor === "All" || sw.vendor === filterVendor;
-        const matchLayer = filterLayer === "All" || sw.switchLayer === filterLayer;
-        return matchSearch && matchVendor && matchLayer;
+
+        // 🏷 Vendor
+        const matchVendor =
+            filterVendor === "All" || sw.vendor === filterVendor;
+
+        // 🧩 Layer dropdown
+        const matchLayer =
+            filterLayer === "All" || sw.switchLayer === filterLayer;
+
+        // 📊 Stat card filter (NEW)
+        const matchCard = (() => {
+            switch (activeFilter) {
+                case "ONLINE":
+                    return sw.isReachable;
+                case "OFFLINE":
+                    return !sw.isReachable;
+                case "L3":
+                    return sw.switchLayer === "L3";
+                case "L2":
+                    return sw.switchLayer === "L2";
+                case "FIREWALL":
+                    return sw.switchLayer === "Firewall";
+                default:
+                    return true;
+            }
+        })();
+
+        return matchSearch && matchVendor && matchLayer && matchCard;
     });
 
     const vendors = ["All", ...new Set(switches.map(s => s.vendor).filter(Boolean))];
+
+    
 
     return (
         <>
@@ -165,14 +215,25 @@ export default function NetworkDashboard() {
                 {/* ── Stat cards ── */}
                 <div style={styles.statRow}>
                     {[
-                        { label: "Total Switches", value: switches.length, icon: "🖧", bg: "#eff6ff", color: "#1d4ed8" },
-                        { label: "Online", value: switches.filter(s => s.isReachable).length, icon: "🟢", bg: "#f0fdf4", color: "#15803d" },
-                        { label: "Offline", value: switches.filter(s => !s.isReachable).length, icon: "🔴", bg: "#fff1f2", color: "#be123c" },
-                        { label: "L3 Switches", value: switches.filter(s => s.switchLayer === "L3").length, icon: "🔷", bg: "#eef2ff", color: "#4338ca" },
-                        { label: "Firewall", value: switches.filter(s => s.switchLayer === "Firewall").length, icon: "🔥", bg: "#eef2ff", color: "#4338ca" },
-                        { label: "L2 Switches", value: switches.filter(s => s.switchLayer === "L2").length, icon: "🔹", bg: "#f0f9ff", color: "#0369a1" },
+                        { key: "ALL", label: "Total Switches", value: switches.length, icon: "🖧", bg: "#eff6ff", color: "#1d4ed8" },
+                        { key: "ONLINE", label: "Online", value: switches.filter(s => s.isReachable).length, icon: "🟢", bg: "#f0fdf4", color: "#15803d" },
+                        { key: "OFFLINE", label: "Offline", value: switches.filter(s => !s.isReachable).length, icon: "🔴", bg: "#fff1f2", color: "#be123c" },
+                        { key: "L3", label: "L3 Switches", value: switches.filter(s => s.switchLayer === "L3").length, icon: "🔷", bg: "#eef2ff", color: "#4338ca" },
+                        { key: "FIREWALL", label: "Firewall", value: switches.filter(s => s.switchLayer === "Firewall").length, icon: "🔥", bg: "#eef2ff", color: "#4338ca" },
+                        { key: "L2", label: "L2 Switches", value: switches.filter(s => s.switchLayer === "L2").length, icon: "🔹", bg: "#f0f9ff", color: "#0369a1" },
                     ].map(c => (
-                        <div key={c.label} style={{ ...styles.statCard, background: c.bg }}>
+                        <div
+                            key={c.label}
+                            onClick={() => setActiveFilter(c.key)}
+                            style={{
+                                ...styles.statCard,
+                                background: c.bg,
+                                cursor: "pointer",
+                                border: activeFilter === c.key ? "2px solid #6366f1" : "1px solid #e2e8f0",
+                                transform: activeFilter === c.key ? "scale(1.05)" : "scale(1)",
+                                transition: "0.2s"
+                            }}
+                        >
                             <div style={styles.statIcon}>{c.icon}</div>
                             <div style={{ ...styles.statVal, color: c.color }}>{c.value}</div>
                             <div style={styles.statLabel}>{c.label}</div>
@@ -210,7 +271,7 @@ export default function NetworkDashboard() {
                             </select>
                             <select style={styles.select} value={filterLayer}
                                 onChange={e => setFilterLayer(e.target.value)}>
-                                {["All", "L2", "L3", "Firwall"].map(l => <option key={l}>{l}</option>)}
+                                {["All", "L2", "L3", "Firewall"].map(l => <option key={l}>{l}</option>)}
                             </select>
                             <span style={{ color: "#64748b", fontSize: 13 }}>
                                 {filteredSwitches.length} results
@@ -507,24 +568,7 @@ function TopologyDiagram({ topology, onSelectNode, onRefresh }) {
 
         const savedPositions = loadSavedPositions();
 
-        const createTooltip = (n) => {
-            const div = document.createElement("div");
-            const title = document.createElement("div");
-            title.textContent = n.label || "Unknown";
-            title.style.fontWeight = "600";
-            title.style.marginBottom = "4px";
-            const vendorModel = document.createElement("div");
-            vendorModel.textContent = `${n.vendor || "—"} ${n.model || ""}`.trim();
-            const ip = document.createElement("div");
-            ip.textContent = `IP: ${n.ipAddress || "—"}`;
-            const layer = document.createElement("div");
-            layer.textContent = `Layer: ${n.switchLayer || "—"}`;
-            div.appendChild(title);
-            div.appendChild(vendorModel);
-            div.appendChild(ip);
-            div.appendChild(layer);
-            return div;
-        };
+        
 
         const nodes = new DataSet(
             rawNodes.map(n => {
@@ -538,7 +582,7 @@ function TopologyDiagram({ topology, onSelectNode, onRefresh }) {
                     borderWidth: 2,
                     shadow: { enabled: true, color: "rgba(0,0,0,0.08)", size: 6 },
                     group: n.group,
-                    title: createTooltip(n),
+                    title: createSwitchTooltip(n),
                     x: saved?.x ?? undefined,
                     y: saved?.y ?? undefined,
                     fixed: saved ? { x: true, y: true } : undefined,
@@ -947,7 +991,7 @@ function UserTopologyDiagram({ topology, portMap, switches, onSelectNode }) {
             borderWidth: 2,
             size: 28,
             shadow: { enabled: true, color: "rgba(0,0,0,0.08)", size: 6 },
-            title: `<b>${n.label}</b>\n${n.vendor} ${n.model}\n${n.ipAddress}\n${n.switchLayer}`,
+            title: createSwitchTooltip(n),
             _switchId: n.id,
             _type: "switch",
         }));
@@ -1259,7 +1303,7 @@ function APTopologyDiagram({ topology, portMap, switches, onSelectNode }) {
             borderWidth: 2,
             size: 28,
             shadow: { enabled: true, color: "rgba(0,0,0,0.08)", size: 6 },
-            title: `<b>${n.label}</b>\n${n.vendor} ${n.model}\n${n.ipAddress}\n${n.switchLayer}`,
+            title: createSwitchTooltip(n),
             _switchId: n.id,
             _type: "switch",
         }));

@@ -180,21 +180,21 @@ app.MapControllers();
 app.MapHub<DeviceHub>("/deviceHub");
 
 // ── Schedule daily scan at 1:00 AM ───────────────────────────
-app.Lifetime.ApplicationStarted.Register(() =>
-{
-    using var scope = app.Services.CreateScope();
-    var recurringJobManager = scope.ServiceProvider
-        .GetRequiredService<IRecurringJobManager>();
+//app.Lifetime.ApplicationStarted.Register(() =>
+//{
+//    using var scope = app.Services.CreateScope();
+//    var recurringJobManager = scope.ServiceProvider
+//        .GetRequiredService<IRecurringJobManager>();
 
-    recurringJobManager.AddOrUpdate<VulnerabilityScanJob>(
-        "daily-vulnerability-scan",
-        job => job.RunAsync(),
-        "0 1 * * *",
-        new RecurringJobOptions
-        {
-            TimeZone = TimeZoneInfo.Local
-        });
-});
+//    recurringJobManager.AddOrUpdate<VulnerabilityScanJob>(
+//        "daily-vulnerability-scan",
+//        job => job.RunAsync(),
+//        "0 1 * * *",
+//        new RecurringJobOptions
+//        {
+//            TimeZone = TimeZoneInfo.Local
+//        });
+//});
 
 
 app.Run();

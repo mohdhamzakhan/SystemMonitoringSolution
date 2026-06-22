@@ -39,13 +39,28 @@ namespace SystemMonitorAPI.Services
 
             foreach (var device in devices)
             {
-                if (string.IsNullOrWhiteSpace(device.Hostname)) continue;
+                if (string.IsNullOrWhiteSpace(device.Hostname))
+                    continue;
+                if (device.Hostname == "PROD-L1-SP")
+                {
+
+                }
                 var matched = TryMatch(device, neighbors);
-                if (matched) result.Resolved++;
-                else result.Unresolved++;
+
+                if (matched)
+                {
+                    db.Entry(device).State = EntityState.Modified;
+                    result.Resolved++;
+                }
+                else
+                {
+                    result.Unresolved++;
+                }
             }
 
+            db.ChangeTracker.DetectChanges();
             await db.SaveChangesAsync(ct);
+
             _logger.LogInformation(
                 "Device port resolution: {Resolved} resolved, {Unresolved} unresolved",
                 result.Resolved, result.Unresolved);
@@ -54,7 +69,7 @@ namespace SystemMonitorAPI.Services
         }
 
         public async Task<DevicePortResolutionResult> ResolveDeviceAsync(
-            string hostname, CancellationToken ct = default)
+    string hostname, CancellationToken ct = default)
         {
             await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
@@ -62,18 +77,25 @@ namespace SystemMonitorAPI.Services
                 .FirstOrDefaultAsync(d => d.Hostname == hostname, ct);
 
             if (device == null)
-                return new DevicePortResolutionResult { Error = $"Device '{hostname}' not found." };
+                return new DevicePortResolutionResult
+                {
+                    Error = $"Device '{hostname}' not found."
+                };
 
             var neighbors = await db.SwitchNeighbors
                 .Include(n => n.LocalSwitch)
                 .ToListAsync(ct);
 
             var result = new DevicePortResolutionResult();
+
             TryMatch(device, neighbors);
+
             await db.SaveChangesAsync(ct);
 
-            if (device.ConnectedSwitchName != null) result.Resolved++;
-            else result.Unresolved++;
+            if (!string.IsNullOrEmpty(device.ConnectedSwitchName))
+                result.Resolved++;
+            else
+                result.Unresolved++;
 
             return result;
         }

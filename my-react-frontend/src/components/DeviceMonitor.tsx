@@ -197,7 +197,7 @@ const DeviceMonitor = () => {
     const [logsLoading, setLogsLoading] = useState(false);
     const [showArchived, setShowArchived] = useState(false);
     const [workingTime, setWorkingTime] = useState<{ [key: string]: number }>({});
-
+    const [selectedDate, setSelectedDate] = useState(null);
 
 
     // Fetch data from the API based on the active tab
@@ -320,6 +320,31 @@ const DeviceMonitor = () => {
         return () => clearInterval(interval);
     }, [activeTab, logs]);
 
+    useEffect(() => {
+        const now = new Date();
+
+        const from = new Date(now);
+        const to = new Date(now);
+
+        // last 7 days
+        from.setDate(from.getDate() - 6);
+
+        // ✅ set start of day (00:00)
+        from.setHours(0, 0, 0, 0);
+
+        // ✅ set end of day (23:59)
+        to.setHours(23, 59, 0, 0);
+
+        const format = (date) => {
+            const offset = date.getTimezoneOffset();
+            const localDate = new Date(date.getTime() - offset * 60000);
+            return localDate.toISOString().slice(0, 16);
+        };
+
+        setFromDate(format(from));
+        setToDate(format(to));
+    }, []);
+
     const normalizeArray = (data: any) => {
         if (!data) return [];
         if (Array.isArray(data)) return data;
@@ -364,7 +389,7 @@ const DeviceMonitor = () => {
         const logsByDate = {};
 
         logs.forEach(log => {
-            const date = new Date(log.eventTime).toLocaleDateString();
+            const date = new Date(log.eventTime).toISOString().split('T')[0];
             if (!logsByDate[date]) {
                 logsByDate[date] = [];
             }
@@ -686,12 +711,18 @@ const DeviceMonitor = () => {
             // Handle the $values array structure
             const logsArray = data.$values || data;
             setLogs(logsArray);
+            calculateWorkingTime(logsArray);
         } catch (error) {
             console.error("Error fetching logs:", error);
         } finally {
             setLogsLoading(false);
         }
-    };
+    }; const filteredLogs = selectedDate
+        ? logs.filter(log => {
+            const d = new Date(log.eventTime).toISOString().split('T')[0];
+            return d === selectedDate;
+        })
+        : logs;
 
 
     return (
@@ -1750,7 +1781,6 @@ const DeviceMonitor = () => {
                                         📜 System Event Logs
                                     </h2>
 
-
                                     {/* Date Range Filter */}
                                     <div className="mb-6 flex flex-wrap gap-4 items-end">
                                         <div className="flex-1 min-w-[200px]">
@@ -1761,9 +1791,10 @@ const DeviceMonitor = () => {
                                                 type="datetime-local"
                                                 value={fromDate}
                                                 onChange={(e) => setFromDate(e.target.value)}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                                             />
                                         </div>
+
                                         <div className="flex-1 min-w-[200px]">
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 To Date
@@ -1772,33 +1803,40 @@ const DeviceMonitor = () => {
                                                 type="datetime-local"
                                                 value={toDate}
                                                 onChange={(e) => setToDate(e.target.value)}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                                             />
                                         </div>
+
                                         <button
                                             onClick={fetchLogs}
-                                            className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
+                                            className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
                                         >
                                             🔍 Filter Logs
                                         </button>
+
+                                        {/* NEW */}
                                         <button
-                                            onClick={() => {
-                                                setFromDate("");
-                                                setToDate("");
-                                                fetchLogs();
-                                            }}
-                                            className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                                            onClick={() => setSelectedDate(null)}
+                                            className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
                                         >
-                                            🔄 Reset
+                                            🔄 Show All
                                         </button>
                                     </div>
+
                                     {/* Working Time Summary */}
                                     {Object.keys(workingTime).length > 0 && (
                                         <div className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
                                             {Object.entries(workingTime).map(([date, time]) => (
                                                 <div
                                                     key={date}
-                                                    className="bg-gradient-to-br from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-4 shadow-sm"
+                                                    onClick={() => setSelectedDate(date)}
+                                                    className={`cursor-pointer transition-all duration-200
+                                border rounded-lg p-4 shadow-sm
+                                ${selectedDate === date
+                                                            ? "bg-purple-200 border-purple-500 scale-105"
+                                                            : "bg-gradient-to-br from-purple-50 to-blue-50 border-purple-200 hover:shadow-md"}
+                            `}
                                                 >
                                                     <div className="flex items-center justify-between">
                                                         <div>
@@ -1812,105 +1850,74 @@ const DeviceMonitor = () => {
                                                                 Active Time
                                                             </p>
                                                         </div>
+
                                                         <div className="p-3 bg-white rounded-full shadow-sm">
                                                             <Clock className="h-6 w-6 text-purple-600" />
                                                         </div>
                                                     </div>
                                                 </div>
                                             ))}
+
                                         </div>
                                     )}
+
+                                    {/* Logs */}
                                     {logsLoading ? (
                                         <div className="flex items-center justify-center py-12">
-                                            <div className="text-center">
-                                                <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-4"></div>
-                                                <p className="text-gray-500">Loading logs...</p>
-                                            </div>
+                                            <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin"></div>
                                         </div>
-                                    ) : logs.length === 0 ? (
+                                    ) : filteredLogs.length === 0 ? (
                                         <div className="text-center py-12">
-                                            <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
-                                                <span className="text-3xl">📭</span>
-                                            </div>
                                             <p className="text-gray-500 text-lg">No logs found</p>
-                                            <p className="text-gray-400 text-sm mt-1">System events will appear here</p>
                                         </div>
                                     ) : (
                                         <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
                                             <table className="min-w-full text-sm">
-                                                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+
+                                                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b">
                                                     <tr>
-                                                        <th className="px-6 py-4 text-left font-semibold text-gray-700">
-                                                            <div className="flex items-center gap-2">
-                                                                <span>🕐</span>
-                                                                <span>Time</span>
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-6 py-4 text-left font-semibold text-gray-700">
-                                                            <div className="flex items-center gap-2">
-                                                                <span>⚡</span>
-                                                                <span>Event</span>
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-6 py-4 text-left font-semibold text-gray-700">
-                                                            <div className="flex items-center gap-2">
-                                                                <span>👤</span>
-                                                                <span>User</span>
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-6 py-4 text-left font-semibold text-gray-700">
-                                                            <div className="flex items-center gap-2">
-                                                                <span>📍</span>
-                                                                <span>Source</span>
-                                                            </div>
-                                                        </th>
+                                                        <th className="px-6 py-4 text-left font-semibold">🕐 Time</th>
+                                                        <th className="px-6 py-4 text-left font-semibold">⚡ Event</th>
+                                                        <th className="px-6 py-4 text-left font-semibold">👤 User</th>
+                                                        <th className="px-6 py-4 text-left font-semibold">📍 Source</th>
                                                     </tr>
                                                 </thead>
-                                                <tbody className="divide-y divide-gray-200 bg-white">
-                                                    {logs.map((log) => (
-                                                        <tr key={log.id} className="hover:bg-purple-50 transition-colors duration-150">
-                                                            <td className="px-6 py-4 text-gray-600 text-left">
-                                                                <div className="flex flex-col">
-                                                                    <span className="font-medium">
-                                                                        {new Date(log.eventTime).toLocaleDateString()}
-                                                                    </span>
-                                                                    <span className="text-xs text-gray-400">
+
+                                                <tbody className="divide-y bg-white">
+                                                    {filteredLogs.map(log => (
+                                                        <tr key={log.id} className="hover:bg-purple-50">
+                                                            <td className="px-6 py-4">
+                                                                <div>
+                                                                    <div>{new Date(log.eventTime).toLocaleDateString()}</div>
+                                                                    <div className="text-xs text-gray-400">
                                                                         {new Date(log.eventTime).toLocaleTimeString()}
-                                                                    </span>
+                                                                    </div>
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-4 text-left">
-                                                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getEventColor(log.eventType)}`}>
+
+                                                            <td className="px-6 py-4">
+                                                                <span className={`px-3 py-1 rounded-full text-xs ${getEventColor(log.eventType)}`}>
                                                                     {log.eventType}
                                                                 </span>
                                                             </td>
-                                                            <td className="px-6 py-4 text-left">
-                                                                <div className="flex items-center gap-2">
-                                                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-400 to-purple-600 flex items-center justify-center text-white text-xs font-semibold">
-                                                                        {(log.username || "SYS").charAt(0).toUpperCase()}
-                                                                    </div>
-                                                                    <span className="font-medium text-gray-900">
-                                                                        {log.username || "SYSTEM"}
-                                                                    </span>
-                                                                </div>
+
+                                                            <td className="px-6 py-4">
+                                                                {log.username || "SYSTEM"}
                                                             </td>
-                                                            <td className="px-6 py-4 text-gray-600 text-left">
-                                                                <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
-                                                                    {log.source || "-"}
-                                                                </span>
+
+                                                            <td className="px-6 py-4">
+                                                                {log.source || "-"}
                                                             </td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
+
                                             </table>
                                         </div>
                                     )}
                                 </div>
                             </CustomCard>
                         )}
-
-
-
 
                         {/* Similarly, you can handle the content for other tabs like network, security, etc. */}
                     </div>

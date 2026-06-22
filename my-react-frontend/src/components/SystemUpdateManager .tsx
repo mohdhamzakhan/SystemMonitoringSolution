@@ -8,7 +8,7 @@ import {
   Loader,
 } from "lucide-react";
 import Navbar from "./Navbar";
-import useAuth from "./useAuth";
+import useAuth from "../useAuth";
 import { APP_CONSTANTS } from "../store";
 
 // Custom Alert Component

@@ -53,7 +53,6 @@ const UpdateManagementPage = () => {
     const [updates, setUpdates] = useState<Update[]>([]);
     const [hostnames, setHostnames] = useState<Hostname[]>([]);
     const [assignedSystems, setAssignedSystems] = useState<System[]>([]);
-    const [filteredHostnames, setFilteredHostnames] = useState<Hostname[]>([]);
     const [filteredSystems, setFilteredSystems] = useState<System[]>([]);
     const [selectedUpdate, setSelectedUpdate] = useState("");
     const [selectedUpdateId, setSelectedUpdateId] = useState<number | null>(null);
@@ -76,9 +75,14 @@ const UpdateManagementPage = () => {
         try {
             const response = await fetch(`${API_BASE_URL}/active-updates`);
             if (!response.ok) throw new Error("Failed to fetch updates");
+
             const data = await response.json();
-            const allUpdates = data.$values || [];
-            setUpdates(allUpdates);
+
+            const activeUpdates = (data || []).filter(
+                (update: any) => update.isActive === true
+            );
+
+            setUpdates(activeUpdates);
             setError("");
         } catch {
             setError("Failed to fetch updates.");
@@ -90,7 +94,7 @@ const UpdateManagementPage = () => {
             const response = await fetch(`${API_BASE_URL}/active-hosts`);
             if (!response.ok) throw new Error("Failed to fetch hostnames");
             const data = await response.json();
-            const availableHostnames = data.$values || [];
+            const availableHostnames = data || [];
             setHostnames(availableHostnames);
             setFilteredHostnames(availableHostnames);
             setError("");
@@ -100,13 +104,28 @@ const UpdateManagementPage = () => {
     }, []);
 
     const fetchAssignedSystems = useCallback(async (updateId: string) => {
+        if (!updateId) {
+            setAssignedSystems([]);
+            return;
+        }
+
         setLoading(true);
         setError("");
+
         try {
-            const response = await fetch(`${API_BASE_URL}/assigned-hostnames?updateID=${updateId}`);
-            if (!response.ok) throw new Error("Failed to fetch assigned systems");
+            const response = await fetch(
+                `${API_BASE_URL}/assigned-hostnames?updateID=${encodeURIComponent(updateId)}`
+            );
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch assigned systems (${response.status})`);
+            }
+
             const data = await response.json();
-            const systems = data.values?.$values || data.$values || [];
+
+            // Direct mapping based on your structure
+            const systems = Array.isArray(data?.values) ? data.values : [];
+
             setAssignedSystems(systems);
         } catch (err: any) {
             setError(err.message || "Failed to load assigned systems.");
@@ -139,10 +158,23 @@ const UpdateManagementPage = () => {
             setAssignedSystems([]);
             setFilteredSystems([]);
             setHostnames([]);
-            setFilteredHostnames([]);
             setSelectedHostnames([]);
         }
     }, [selectedUpdate, fetchHostnames, fetchAssignedSystems]);
+
+    const filteredHostnames = useMemo(() => {
+        let result = [...availableHostnames];
+
+        if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            result = result.filter((h) =>
+                h.hostname?.toLowerCase().includes(term) ||
+                h.username?.toLowerCase().includes(term)
+            );
+        }
+
+        return result;
+    }, [availableHostnames, searchTerm]);
 
     // Filtering & Sorting
     const filteredData = useMemo(() => {
@@ -164,7 +196,6 @@ const UpdateManagementPage = () => {
                     return 0;
                 });
             }
-            setFilteredHostnames(result);
             return result;
         } else {
             let filtered = assignedSystems;
@@ -352,6 +383,8 @@ const UpdateManagementPage = () => {
     };
 
     const selectedUpdateInfo = updates.find(u => String(u.updateID) === selectedUpdate);
+
+
 
     return (
         <>

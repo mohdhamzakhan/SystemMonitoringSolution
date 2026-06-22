@@ -1,7 +1,7 @@
 ﻿import React from "react";
 import Dropdown from "./Dropdown";
 import { getRole, isSessionValid, clearSession } from "../auth";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, NavLink  } from "react-router-dom";
 
 const Navbar = () => {
     const isAdmin = isSessionValid() && getRole() === "Admin";
@@ -36,28 +36,110 @@ const Navbar = () => {
     return (
         <nav className="bg-gray-800 text-white p-4">
             <div className="max-w-7xl mx-auto flex justify-between items-center">
-                <Link to="/MainPage" className="text-2xl font-bold">
+                 <NavLink
+                                to="/MainPage"
+                                className={({ isActive }) =>
+                                    isActive
+                                        ? "text-blue-400 font-semibold border-b-2 border-blue-400 pb-1"
+                                        : "hover:text-gray-300"
+                                }
+                            >
+                                MEAI System Monitor
+                            </NavLink>
+                {/* <Link to="/MainPage" className="text-2xl font-bold">
                     MEAI System Monitor
-                </Link>
+                </Link> */}
                 <div className="relative">
                     <ul className="flex space-x-6 items-center">
                         <li>
-                            <Link to="/devicelist" className="hover:text-gray-300">Device List</Link>
+                            <NavLink
+                                to="/devicelist"
+                                className={({ isActive }) =>
+                                    isActive
+                                        ? "text-blue-400 font-semibold border-b-2 border-blue-400 pb-1"
+                                        : "hover:text-gray-300"
+                                }
+                            >
+                                Device List
+                            </NavLink>
                         </li>
                         <li>
-                            <Link to="/software" className="hover:text-gray-300">Software List</Link>
+                             <NavLink
+                                to="/software"
+                                className={({ isActive }) =>
+                                    isActive
+                                        ? "text-blue-400 font-semibold border-b-2 border-blue-400 pb-1"
+                                        : "hover:text-gray-300"
+                                }
+                            >
+                                Software List
+                            </NavLink>
+                            {/* <Link to="/software" className="hover:text-gray-300">Software List</Link> */}
                         </li>
                         <li>
-                            <Link to="/systemReport" className="hover:text-gray-300">Report</Link>
+                            <NavLink
+                                to="/systemReport"
+                                className={({ isActive }) =>
+                                    isActive
+                                        ? "text-blue-400 font-semibold border-b-2 border-blue-400 pb-1"
+                                        : "hover:text-gray-300"
+                                }
+                            >
+                                Report
+                            </NavLink>
+                            {/* <Link to="/systemReport" className="hover:text-gray-300">Report</Link> */}
                         </li>
                         <li>
-                            <Link to="/vulnerability-dashboard" className="hover:text-gray-300">Vulnerability Dashboard</Link>
+                            <NavLink
+                                to="/folder"
+                                className={({ isActive }) =>
+                                    isActive
+                                        ? "text-blue-400 font-semibold border-b-2 border-blue-400 pb-1"
+                                        : "hover:text-gray-300"
+                                }
+                            >
+                                Folder
+                            </NavLink>
+                            {/* <Link to="/folder" className="hover:text-gray-300">Folder</Link> */}
                         </li>
                         <li>
-                            <Link to="/NetworkDashboard" className="hover:text-gray-300">Network</Link>
+                             <NavLink
+                                to="/vulnerability-dashboard"
+                                className={({ isActive }) =>
+                                    isActive
+                                        ? "text-blue-400 font-semibold border-b-2 border-blue-400 pb-1"
+                                        : "hover:text-gray-300"
+                                }
+                            >
+                                Vulnerability Dashboard
+                            </NavLink>
+                            {/* <Link to="/vulnerability-dashboard" className="hover:text-gray-300">Vulnerability Dashboard</Link> */}
                         </li>
                         <li>
-                            <Link to="/warranty-management" className="hover:text-gray-300">Warranty Management</Link>
+                            <NavLink
+                                to="/NetworkDashboard"
+                                className={({ isActive }) =>
+                                    isActive
+                                        ? "text-blue-400 font-semibold border-b-2 border-blue-400 pb-1"
+                                        : "hover:text-gray-300"
+                                }
+                            >
+                                Network
+                            </NavLink>
+                            {/* <Link to="/NetworkDashboard" className="hover:text-gray-300">Network</Link> */}
+                        </li>
+                        <li>
+                            <NavLink
+                                to="/warranty-management"
+                                className={({ isActive }) =>
+                                    isActive
+                                        ? "text-blue-400 font-semibold border-b-2 border-blue-400 pb-1"
+                                        : "hover:text-gray-300"
+                                }
+                            >
+                                Warranty Management
+                            </NavLink>
+                            {/* <Link to="/warranty-management" className="hover:text-gray-300">Warranty Management</Link> */}
                         </li>
                         <li>
                             <Dropdown />

@@ -117,6 +117,18 @@ namespace SystemMonitorAPI.Model
                 .HasIndex(v => new { v.CveId, v.SoftwareDetailsID })
                 .IsUnique();
 
+            modelBuilder.Entity<Device>(entity =>
+            {
+                entity.HasKey(x => x.Hostname);
+
+                entity.HasOne(x => x.ConnectedSwitch)
+                    .WithMany()
+                    .HasForeignKey(x => x.ConnectedSwitchId)
+                    .HasPrincipalKey(x => x.SwitchId)
+                    .OnDelete(DeleteBehavior.SetNull)
+                    .IsRequired(false);
+            });
+
             #region switch
             // ── SMM_SWITCH ────────────────────────────────────────
             modelBuilder.Entity<SmmSwitch>(e =>

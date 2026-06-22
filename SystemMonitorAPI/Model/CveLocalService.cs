@@ -29,8 +29,8 @@ namespace SystemMonitorAPI.Model
         private const string ZipUrl =
             "https://github.com/CVEProject/cvelistV5/archive/refs/heads/main.zip";
 
-        // How long before we re-download (default 24 h)
-        private static readonly TimeSpan RefreshInterval = TimeSpan.FromHours(24);
+        // How long before we re-download (default 7 days)
+        private static readonly TimeSpan RefreshInterval = TimeSpan.FromDays(7);
 
         // ── paths (all inside a single "cve-db" folder) ───────────
         private readonly string _dbRoot;        // …/cve-db/
@@ -62,7 +62,9 @@ namespace SystemMonitorAPI.Model
             _extractRoot = Path.Combine(_dbRoot, "extracted");
             _cvesRoot = Path.Combine(_extractRoot, "cvelistV5-main", "cves");
             _stampPath = Path.Combine(_dbRoot, "last-updated.txt");
-
+            _logger.LogInformation(
+                "CveLocalService instance created: {Hash}",
+                GetHashCode());
             Directory.CreateDirectory(_dbRoot);
         }
 
@@ -99,6 +101,11 @@ namespace SystemMonitorAPI.Model
                     .ToList();
             }
 
+            candidates = candidates
+                    .GroupBy(c => c.Id, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToList();
+
             return candidates;
         }
 
@@ -109,6 +116,7 @@ namespace SystemMonitorAPI.Model
             {
                 await DownloadZipAsync();
                 await ExtractZipAsync();
+                _logger.LogInformation("Calling BuildIndex from RefreshDatabaseAsync");
                 BuildIndex();
                 await File.WriteAllTextAsync(
                     _stampPath,
@@ -144,6 +152,7 @@ namespace SystemMonitorAPI.Model
                 if (_index is null)
                 {
                     _logger.LogInformation("[CveLocal] Building in-memory index …");
+                    _logger.LogInformation("Calling BuildIndex from EnsureDatabaseReadyAsync");
                     BuildIndex();
                 }
             }
@@ -278,6 +287,7 @@ namespace SystemMonitorAPI.Model
 
                 Console.WriteLine("[CveLocal] Extraction folder is stale — removing and re-extracting …");
                 Directory.Delete(_extractRoot, recursive: true);
+                Directory.Delete(_extractRoot, recursive: true);
             }
 
             Directory.CreateDirectory(_extractRoot);
@@ -357,41 +367,88 @@ namespace SystemMonitorAPI.Model
 
         private void BuildIndex()
         {
+            _logger.LogInformation(
+                "BuildIndex START from {Caller}",
+                Environment.StackTrace);
+
             if (!Directory.Exists(_cvesRoot))
             {
-                _logger.LogWarning("[CveLocal] CVEs root not found: {Root}", _cvesRoot);
+                _logger.LogWarning(
+                    "[CveLocal] CVEs root not found: {Root}",
+                    _cvesRoot);
+
                 _index = new();
                 return;
             }
 
-            var index = new Dictionary<string, List<CveDto>>(StringComparer.OrdinalIgnoreCase);
+            var index = new Dictionary<string, List<CveDto>>(
+                StringComparer.OrdinalIgnoreCase);
+
+            // Tracks which CVE IDs already exist under each key
+            var cveTracker = new Dictionary<string, HashSet<string>>(
+                StringComparer.OrdinalIgnoreCase);
+
             int parsed = 0;
             int failed = 0;
+            int duplicatesSkipped = 0;
             int lastPct = -1;
+
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
+            int currentYear = DateTime.Now.Year;
+            int startYear = currentYear - 2; // last 3 years
+
             var allFiles = Directory
-                .EnumerateFiles(_cvesRoot, "*.json", SearchOption.AllDirectories)
+                .EnumerateDirectories(_cvesRoot)
+                .Where(dir =>
+                {
+                    var folderName = Path.GetFileName(dir);
+
+                    return int.TryParse(folderName, out int year)
+                           && year >= startYear
+                           && year <= currentYear;
+                })
+                .SelectMany(dir =>
+                    Directory.EnumerateFiles(
+                        dir,
+                        "*.json",
+                        SearchOption.AllDirectories))
                 .ToList();
 
             int total = allFiles.Count;
-            Console.WriteLine($"\n[CveLocal] Indexing {total:N0} CVE JSON files …\n");
+
+            Console.WriteLine(
+                $"\n[CveLocal] Indexing {total:N0} CVE JSON files …\n");
 
             for (int i = 0; i < total; i++)
             {
                 try
                 {
                     var dto = ParseCveFile(allFiles[i]);
-                    if (dto is null) continue;
 
-                    // Index under every (vendor, product) pair found in the JSON
+                    if (dto is null)
+                        continue;
+
                     foreach (var key in dto.IndexKeys)
                     {
                         if (!index.TryGetValue(key, out var list))
                         {
                             list = new List<CveDto>();
                             index[key] = list;
+
+                            cveTracker[key] = new HashSet<string>(
+                                StringComparer.OrdinalIgnoreCase);
                         }
+
+                        var tracker = cveTracker[key];
+
+                        // Skip duplicate CVEs for same key
+                        if (!tracker.Add(dto.Id))
+                        {
+                            duplicatesSkipped++;
+                            continue;
+                        }
+
                         list.Add(dto);
                     }
 
@@ -400,32 +457,48 @@ namespace SystemMonitorAPI.Model
                 catch (Exception ex)
                 {
                     failed++;
-                    _logger.LogDebug(ex, "[CveLocal] Failed to parse {File}", allFiles[i]);
+
+                    _logger.LogDebug(
+                        ex,
+                        "[CveLocal] Failed to parse {File}",
+                        allFiles[i]);
                 }
 
-                // ── progress bar (every 1 % or every 2 s) ────────
                 int pct = (int)((i + 1) * 100L / total);
-                if (pct != lastPct || sw.ElapsedMilliseconds >= 2_000)
+
+                if (pct != lastPct || sw.ElapsedMilliseconds >= 2000)
                 {
                     lastPct = pct;
                     sw.Restart();
 
                     int filled = pct / 5;
-                    string bar = new string('█', filled) + new string('░', 20 - filled);
+                    string bar =
+                        new string('█', filled) +
+                        new string('░', 20 - filled);
+
                     Console.Write(
                         $"\r  [{bar}] {pct,3}%  {i + 1:N0}/{total:N0} files  " +
-                        $"✔ {parsed:N0} indexed  ✖ {failed:N0} skipped   ");
+                        $"✔ {parsed:N0} indexed  " +
+                        $"✖ {failed:N0} skipped  " +
+                        $"↺ {duplicatesSkipped:N0} duplicates   ");
                 }
             }
 
             Console.WriteLine(
-                $"\r  [████████████████████] 100%  ✔ {parsed:N0} CVEs indexed  " +
-                $"✖ {failed:N0} skipped  →  {index.Count:N0} lookup keys\n");
+                $"\r  [████████████████████] 100%  " +
+                $"✔ {parsed:N0} CVEs indexed  " +
+                $"✖ {failed:N0} skipped  " +
+                $"↺ {duplicatesSkipped:N0} duplicates removed  " +
+                $"→ {index.Count:N0} lookup keys\n");
 
             _index = index;
+
             _logger.LogInformation(
-                "[CveLocal] Index built: {Parsed:N0} CVEs, {Failed:N0} skipped, {Keys:N0} keys.",
-                parsed, failed, index.Count);
+                "[CveLocal] Index built: {Parsed:N0} CVEs, {Failed:N0} skipped, {Duplicates:N0} duplicates removed, {Keys:N0} keys.",
+                parsed,
+                failed,
+                duplicatesSkipped,
+                index.Count);
         }
 
         // ── Parse a single CVE JSON file ─────────────────────────
@@ -507,16 +580,21 @@ namespace SystemMonitorAPI.Model
                         indexKeys.Add(IndexKey("", product));          // also index by product-only
                     }
 
+                    // In ParseCveFile, replace the versions block with:
                     if (aff.TryGetProperty("versions", out var versions))
                     {
                         foreach (var v in versions.EnumerateArray())
                         {
-                            if (v.TryGetProperty("version", out var vv))
-                            {
-                                var vStr = vv.GetString();
-                                if (!string.IsNullOrEmpty(vStr))
-                                    affectedVersions.Add(vStr);
-                            }
+                            // Base version (start of range or exact)
+                            string? vStr = v.TryGetProperty("version", out var vv) ? vv.GetString() : null;
+
+                            // Range upper bounds
+                            string? lessThan = v.TryGetProperty("lessThan", out var lt) ? lt.GetString() : null;
+                            string? lessThanEq = v.TryGetProperty("lessThanOrEqual", out var lte) ? lte.GetString() : null;
+
+                            if (!string.IsNullOrEmpty(lessThan) && lessThan != "*") affectedVersions.Add($"< {lessThan}");
+                            if (!string.IsNullOrEmpty(lessThanEq) && lessThanEq != "*") affectedVersions.Add($"<= {lessThanEq}");
+                            if (!string.IsNullOrEmpty(vStr) && vStr != "0") affectedVersions.Add(vStr);
                         }
                     }
                 }
@@ -551,25 +629,84 @@ namespace SystemMonitorAPI.Model
         // ── Version matching ─────────────────────────────────────
         // Simple prefix match:  "10.0.1" matches "10.0.1", "10.0", "10" etc.
 
+        // ── Version matching ─────────────────────────────────────────────────────────
+        // Handles: exact, prefix, "< x.y.z", "<= x.y.z", ">= x.y.z", range objects.
+
         private static bool VersionMatches(string affectedVersion, string queryVersion)
         {
             if (string.IsNullOrEmpty(affectedVersion)) return true;
 
-            // Exact match
+            affectedVersion = affectedVersion.Trim();
+
+            // ── Range operators  ("<= 8.0.24", "< 8.1", ">= 8.0.0") ──────────────
+            if (affectedVersion.StartsWith("<="))
+                return CompareVersions(queryVersion, affectedVersion[2..].Trim()) <= 0;
+
+            if (affectedVersion.StartsWith('<'))
+                return CompareVersions(queryVersion, affectedVersion[1..].Trim()) < 0;
+
+            if (affectedVersion.StartsWith(">="))
+                return CompareVersions(queryVersion, affectedVersion[2..].Trim()) >= 0;
+
+            if (affectedVersion.StartsWith('>'))
+                return CompareVersions(queryVersion, affectedVersion[1..].Trim()) > 0;
+
+            // ── Exact match ────────────────────────────────────────────────────────
             if (string.Equals(affectedVersion, queryVersion, StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            // Major.Minor prefix match
+            // ── Prefix match (only when affected is LESS specific than query) ──────
+            // "8.0"    matches query "8.0.25"  ✔
+            // "8.0.25" does NOT match query "8.0" ✔  (we don't widen scope)
             var qParts = queryVersion.Split('.');
             var aParts = affectedVersion.Split('.');
-            int common = Math.Min(qParts.Length, aParts.Length);
 
-            for (int i = 0; i < common; i++)
-                if (!string.Equals(qParts[i], aParts[i], StringComparison.OrdinalIgnoreCase))
+            // Affected version must be equal or less specific than the query
+            if (aParts.Length > qParts.Length) return false;
+
+            for (int i = 0; i < aParts.Length; i++)
+            {
+                if (!string.Equals(
+                        NormalizeVersionSegment(qParts[i]),
+                        NormalizeVersionSegment(aParts[i]),
+                        StringComparison.OrdinalIgnoreCase))
                     return false;
+            }
 
             return true;
         }
+
+        /// <summary>
+        /// Compares two dotted version strings numerically.
+        /// Returns -1, 0, or 1 (like IComparable).
+        /// </summary>
+        private static int CompareVersions(string a, string b)
+        {
+            var aParts = a.Split('.');
+            var bParts = b.Split('.');
+            int len = Math.Max(aParts.Length, bParts.Length);
+
+            for (int i = 0; i < len; i++)
+            {
+                int aNum = i < aParts.Length
+                    && int.TryParse(NormalizeVersionSegment(aParts[i]), out var an) ? an : 0;
+                int bNum = i < bParts.Length
+                    && int.TryParse(NormalizeVersionSegment(bParts[i]), out var bn) ? bn : 0;
+
+                if (aNum != bNum) return aNum.CompareTo(bNum);
+            }
+
+            return 0;
+        }
+
+        /// <summary>
+        /// Strips common suffixes like "-rc1", "-beta", "+build.1" so numeric 
+        /// comparison still works. "25-rc1" → "25".
+        /// </summary>
+        private static string NormalizeVersionSegment(string segment)
+            => System.Text.RegularExpressions.Regex.Match(segment, @"^\d+").Value is { Length: > 0 } m
+                ? m
+                : segment;
 
         private static string IndexKey(string vendor, string product)
             => $"{vendor.ToLower()}::{product.ToLower()}";
