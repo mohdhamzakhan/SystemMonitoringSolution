@@ -982,6 +982,8 @@ function UserTopologyDiagram({ topology, portMap, switches, onSelectNode }) {
         const { nodes: rawNodes } = topology;
         if (!rawNodes?.length) return;
 
+
+
         const switchNodes = rawNodes.map(n => ({
             id: `sw-${n.id}`,
             label: `${n.label}\n${n.ipAddress}`,
@@ -1294,6 +1296,13 @@ function APTopologyDiagram({ topology, portMap, switches, onSelectNode }) {
         const { nodes: rawNodes } = topology;
         if (!rawNodes?.length) return;
 
+        const mappedDevices = portMap
+            .filter(d => d.connectedSwitchId != null)
+            .map((d, idx) => ({
+                ...d,
+                _uid: `${d.hostname?.trim() || "ap"}-${d.connectedSwitchId}-${d.connectedPort || idx}-${idx}`,
+            }));
+
         const switchNodes = rawNodes.map(n => ({
             id: `sw-${n.id}`,
             label: `${n.label}\n${n.ipAddress}`,
@@ -1307,6 +1316,8 @@ function APTopologyDiagram({ topology, portMap, switches, onSelectNode }) {
             _switchId: n.id,
             _type: "switch",
         }));
+
+
 
         const createTooltip = (d) => {
             const div = document.createElement("div");
@@ -1323,22 +1334,20 @@ function APTopologyDiagram({ topology, portMap, switches, onSelectNode }) {
             return div;
         };
 
-        const deviceNodes = portMap
-            .filter(d => d.connectedSwitchId != null)
-            .map(d => ({
-                id: `dev-${d.hostname}`,
-                label: `${d.hostname || "AP"}\n`,
-                color: d.status === "Offline"
-                    ? { background: "#fee2e2", border: "#ef4444", highlight: { background: "#fef9c3", border: "#f59e0b" }, hover: { background: "#fef9c3", border: "#f59e0b" } }
-                    : { background: "#fef9c3", border: "#f59e0b", highlight: { background: "#dbeafe", border: "#3b82f6" }, hover: { background: "#dbeafe", border: "#3b82f6" } },
-                font: { color: "#1e293b", size: 11, face: "Inter, sans-serif", multi: true },
-                shape: "ellipse",
-                borderWidth: 1.5,
-                size: 18,
-                title: createTooltip(d),
-                _type: "device",
-                _switchId: d.connectedSwitchId,
-            }));
+        const deviceNodes = mappedDevices.map(d => ({
+            id: `dev-${d._uid}`,          // was: `dev-${d.hostname}`
+            label: `${d.hostname || "AP"}\n`,
+            color: d.status === "Offline"
+                ? { background: "#fee2e2", border: "#ef4444", highlight: { background: "#fef9c3", border: "#f59e0b" }, hover: { background: "#fef9c3", border: "#f59e0b" } }
+                : { background: "#fef9c3", border: "#f59e0b", highlight: { background: "#dbeafe", border: "#3b82f6" }, hover: { background: "#dbeafe", border: "#3b82f6" } },
+            font: { color: "#1e293b", size: 11, face: "Inter, sans-serif", multi: true },
+            shape: "ellipse",
+            borderWidth: 1.5,
+            size: 18,
+            title: createTooltip(d),
+            _type: "device",
+            _switchId: d.connectedSwitchId,
+        }));
 
         const allNodes = new DataSet([...switchNodes, ...deviceNodes]);
         nodesDataRef.current = allNodes;
@@ -1362,23 +1371,21 @@ function APTopologyDiagram({ topology, portMap, switches, onSelectNode }) {
             };
         });
 
-        const deviceEdges = portMap
-            .filter(d => d.connectedSwitchId != null)
-            .map(d => ({
-                id: `edge-dev-${d.hostname}`,
-                from: `dev-${d.hostname}`,
-                to: `sw-${d.connectedSwitchId}`,
-                label: d.connectedPort
-                    ? d.connectedPort.replace(/GigabitEthernet|FastEthernet|TenGigabitEthernet/g,
-                        m => ({ GigabitEthernet: "Gi", FastEthernet: "Fa", TenGigabitEthernet: "Te" }[m] ?? m))
-                    : "",
-                color: { color: "#cbd5e1", highlight: "#f59e0b", hover: "#f59e0b" },
-                font: { color: "#94a3b8", size: 9, align: "middle", background: "#ffffff" },
-                dashes: [3, 4],
-                width: 1,
-                smooth: { type: "dynamic" },
-                arrows: { to: { enabled: false } },
-            }));
+        const deviceEdges = mappedDevices.map(d => ({
+            id: `edge-dev-${d._uid}`,       // was: `edge-dev-${d.hostname}`
+            from: `dev-${d._uid}`,          // was: `dev-${d.hostname}`
+            to: `sw-${d.connectedSwitchId}`,
+            label: d.connectedPort
+                ? d.connectedPort.replace(/GigabitEthernet|FastEthernet|TenGigabitEthernet/g,
+                    m => ({ GigabitEthernet: "Gi", FastEthernet: "Fa", TenGigabitEthernet: "Te" }[m] ?? m))
+                : "",
+            color: { color: "#cbd5e1", highlight: "#f59e0b", hover: "#f59e0b" },
+            font: { color: "#94a3b8", size: 9, align: "middle", background: "#ffffff" },
+            dashes: [3, 4],
+            width: 1,
+            smooth: { type: "dynamic" },
+            arrows: { to: { enabled: false } },
+        }));
 
         const allEdges = new DataSet([...switchEdges, ...deviceEdges]);
 

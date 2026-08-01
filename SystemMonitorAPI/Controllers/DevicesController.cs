@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using System.Net.NetworkInformation;
 using System.Runtime.Intrinsics.X86;
 using System.Xml.Linq;
 using SystemMonitorAPI.Model;
@@ -1304,6 +1305,59 @@ namespace SystemMonitorAPI.Controllers
             );
 
             return Ok(result);
+        }
+
+        [HttpGet("ping")]
+        public async Task<IActionResult> PingIp(string ip)
+        {
+            if (string.IsNullOrWhiteSpace(ip) || ip.Equals("dynamic", StringComparison.OrdinalIgnoreCase))
+                return Ok(new { ip, status = "unknown" });
+
+            try
+            {
+                using var ping = new Ping();
+                var reply = await ping.SendPingAsync(ip, 1500);
+
+                return Ok(new
+                {
+                    ip,
+                    status = reply.Status == IPStatus.Success ? "online" : "offline",
+                    roundtripTime = reply.Status == IPStatus.Success ? reply.RoundtripTime : (long?)null
+                });
+            }
+            catch
+            {
+                return Ok(new { ip, status = "offline" });
+            }
+        }
+
+        [HttpPost("ping-batch")]
+        public async Task<IActionResult> PingBatch([FromBody] List<string> ips)
+        {
+            var tasks = ips.Distinct().Select(async ip =>
+            {
+                if (string.IsNullOrWhiteSpace(ip) || ip.Equals("dynamic", StringComparison.OrdinalIgnoreCase))
+                    return new { ip, status = "unknown", roundtripTime = (long?)null };
+
+                try
+                {
+                    using var ping = new Ping();
+                    var reply = await ping.SendPingAsync(ip, 1500);
+                    return new
+                    {
+                        ip,
+                        status = reply.Status == IPStatus.Success ? "online" : "offline",
+                        roundtripTime = reply.Status == IPStatus.Success ? (long?)reply.RoundtripTime : null
+                    };
+                }
+                catch
+                {
+                    return new { ip, status = "offline", roundtripTime = (long?)null };
+                }
+            });
+
+            var results = await Task.WhenAll(tasks);
+            return Ok(results);
         }
     }
 }

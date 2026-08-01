@@ -199,6 +199,11 @@ const DeviceMonitor = () => {
     const [workingTime, setWorkingTime] = useState<{ [key: string]: number }>({});
     const [selectedDate, setSelectedDate] = useState(null);
 
+    // ✅ NEW: ping state
+    const [pingResults, setPingResults] = useState<Record<string, { status: string; roundtripTime?: number }>>({});
+    const [lastPingCheck, setLastPingCheck] = useState<Date | null>(null);
+    const [pingIntervalMs, setPingIntervalMs] = useState(10000); // configurable, default 10s
+    const [isPinging, setIsPinging] = useState(false); // for manual refresh spinner
 
     // Fetch data from the API based on the active tab
     useEffect(() => {
@@ -277,6 +282,60 @@ const DeviceMonitor = () => {
         fetchData();
     }, [activeTab, hostname]);
 
+    // ✅ NEW: ping polling effect — runs only while on the network tab
+    // Reusable ping function (used by both auto-poll and manual button)
+    // Reusable ping function (used by both auto-poll and manual button)
+    const runPingCheck = async () => {
+        if (!deviceData) return;
+
+        const ips = [
+            deviceData.connectedSwitchIp,
+            ...(deviceData.networkDetails?.map((n: any) => n.ipAddress) || []),
+        ].filter((ip) => ip && ip.toLowerCase() !== "dynamic");
+
+        if (ips.length === 0) return;
+
+        try {
+            setIsPinging(true);
+            const res = await axios.post(
+                `${APP_CONSTANTS.API_BASE_URL}/api/devices/ping-batch`,
+                ips
+            );
+
+            const map: Record<string, any> = {};
+            res.data.forEach((r: any) => {
+                map[r.ip] = r;
+            });
+
+            setPingResults(map);
+            setLastPingCheck(new Date());
+        } catch (e) {
+            console.error("Ping batch failed", e);
+        } finally {
+            setIsPinging(false);
+        }
+    };
+
+    // Auto-poll effect — runs only while on the network tab
+    useEffect(() => {
+        if (activeTab !== "network" || !deviceData) return;
+
+        runPingCheck(); // immediately on entering tab / data change
+        const interval = setInterval(runPingCheck, pingIntervalMs);
+
+        return () => clearInterval(interval);
+    }, [activeTab, deviceData?.connectedSwitchIp, deviceData?.networkDetails, pingIntervalMs]);
+
+    // Auto-poll effect — runs only while on the network tab
+    useEffect(() => {
+        if (activeTab !== "network" || !deviceData) return;
+
+        runPingCheck(); // immediately on entering tab / data change
+        const interval = setInterval(runPingCheck, pingIntervalMs);
+
+        return () => clearInterval(interval);
+    }, [activeTab, deviceData?.connectedSwitchIp, deviceData?.networkDetails, pingIntervalMs]);
+
     useEffect(() => {
         if (activeTab !== "logs") return;
 
@@ -351,33 +410,6 @@ const DeviceMonitor = () => {
         if (Array.isArray(data.$values)) return data.$values;
         return [];
     };
-
-    //   const fetchLogs = async () => {
-    //     setLogsLoading(true);
-    //     try {
-    //       const res = await axios.get(
-    //         `${APP_CONSTANTS.API_BASE_URL}/api/devices/${hostname}/systemEvent`,
-    //         {
-    //           params: {
-    //             from: fromDate || undefined,
-    //             to: toDate || undefined,
-    //           },
-    //         }
-    //       );
-
-    //       const data = res.data?.$values ?? [];
-    //       setLogs(data);
-
-    //       console.log("Logs fetched:", data);
-    //     } catch (err) {
-    //       console.error("Failed to fetch logs", err);
-    //     } finally {
-    //       setLogsLoading(false);
-    //     }
-    //   };
-
-    //   fetchLogs();
-    // }, [activeTab, fromDate, toDate, hostname]);
 
     const calculateWorkingTime = (logs) => {
         if (!logs || logs.length === 0) {
@@ -604,6 +636,49 @@ const DeviceMonitor = () => {
         return Network;
     };
 
+    // ✅ NEW: resolve ping state/roundtrip for a given IP
+    const getPingStatus = (ip?: string) => {
+        if (!ip || ip.toLowerCase() === "dynamic") {
+            return { state: "unknown" as const, roundtripTime: undefined };
+        }
+        const result = pingResults[ip];
+        if (!result) return { state: "checking" as const, roundtripTime: undefined };
+        return {
+            state: result.status as "online" | "offline",
+            roundtripTime: result.roundtripTime,
+        };
+    };
+
+    // ✅ NEW: reusable blinking status dot based on ping result
+    const PingStatusDot = ({ ip }: { ip?: string }) => {
+        const { state, roundtripTime } = getPingStatus(ip);
+
+        const dotClass =
+            state === "checking"
+                ? "bg-gray-300 animate-pulse"
+                : state === "online"
+                    ? "bg-green-500 animate-ping-blink"
+                    : state === "offline"
+                        ? "bg-red-500"
+                        : "bg-gray-300";
+
+        const title =
+            state === "checking"
+                ? "Checking..."
+                : state === "online"
+                    ? `Online${roundtripTime != null ? ` (${roundtripTime}ms)` : ""}`
+                    : state === "offline"
+                        ? "Offline"
+                        : "Unknown";
+
+        return (
+            <span
+                className={`ml-auto w-2.5 h-2.5 rounded-full ${dotClass}`}
+                title={title}
+            />
+        );
+    };
+
 
     const isUpdatedToday = (dateString) => {
         if (!dateString) return false;
@@ -810,8 +885,8 @@ const DeviceMonitor = () => {
                                     {/* Icon */}
                                     <div
                                         className={`p-2 rounded-lg ${deviceData.status === "Connected"
-                                                ? "bg-green-50"
-                                                : "bg-gray-100"
+                                            ? "bg-green-50"
+                                            : "bg-gray-100"
                                             }`}
                                     >
                                         {deviceData.status === "Connected" ? (
@@ -840,8 +915,8 @@ const DeviceMonitor = () => {
                                             >
                                                 <span
                                                     className={`h-2 w-2 rounded-full ${deviceData.status === "Connected"
-                                                            ? "bg-green-500 animate-pulse"
-                                                            : "bg-gray-400"
+                                                        ? "bg-green-500 animate-pulse"
+                                                        : "bg-gray-400"
                                                         }`}
                                                 />
                                                 {deviceData.status}
@@ -854,8 +929,8 @@ const DeviceMonitor = () => {
                                 <div className="text-right">
                                     <p
                                         className={`text-sm font-semibold ${deviceData.status === "Connected"
-                                                ? "text-green-600"
-                                                : "text-gray-500"
+                                            ? "text-green-600"
+                                            : "text-gray-500"
                                             }`}
                                     >
                                         {deviceData.status === "Connected" ? "Active" : "Inactive"}
@@ -1130,16 +1205,56 @@ const DeviceMonitor = () => {
                                 <div className="p-8 space-y-8">
 
                                     {/* ================= HEADER ================= */}
-                                    <h2 className="text-xl font-semibold text-gray-900 tracking-wide">
-                                        🌐 Network Overview
-                                    </h2>
+                                    <div className="flex items-center justify-between flex-wrap gap-3">
+                                        <h2 className="text-xl font-semibold text-gray-900 tracking-wide">
+                                            🌐 Network Overview
+                                        </h2>
+
+                                        <div className="flex items-center gap-3">
+                                            {lastPingCheck && (
+                                                <p className="text-xs text-gray-400">
+                                                    Last checked: {lastPingCheck.toLocaleTimeString()}
+                                                </p>
+                                            )}
+
+                                            {/* Interval selector */}
+                                            <select
+                                                value={pingIntervalMs}
+                                                onChange={(e) => setPingIntervalMs(Number(e.target.value))}
+                                                className="text-xs border border-gray-300 rounded-md px-2 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                title="Auto-refresh interval"
+                                            >
+                                                <option value={5000}>Every 5s</option>
+                                                <option value={10000}>Every 10s</option>
+                                                <option value={30000}>Every 30s</option>
+                                                <option value={60000}>Every 1m</option>
+                                            </select>
+
+                                            {/* Manual ping-now button */}
+                                            <button
+                                                onClick={runPingCheck}
+                                                disabled={isPinging}
+                                                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                {isPinging ? (
+                                                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                                                ) : (
+                                                    <Activity className="h-3.5 w-3.5" />
+                                                )}
+                                                {isPinging ? "Pinging..." : "Ping now"}
+                                            </button>
+                                        </div>
+                                    </div>
 
                                     {/* ================= SWITCH INFO ================= */}
                                     {deviceData?.connectedSwitchName && (
                                         <div className="rounded-xl p-5 bg-green-50 border border-green-200 shadow-sm">
-                                            <h3 className="text-sm font-semibold text-gray-700 uppercase mb-3">
-                                                Switch Connection
-                                            </h3>
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h3 className="text-sm font-semibold text-gray-700 uppercase">
+                                                    Switch Connection
+                                                </h3>
+                                                <PingStatusDot ip={deviceData.connectedSwitchIp} />
+                                            </div>
 
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
 
@@ -1193,8 +1308,8 @@ const DeviceMonitor = () => {
                                     {/* ================= NETWORK INTERFACES ================= */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         {deviceData?.networkDetails?.map((network: any, index: number) => {
-                                            const Connected = isConnected(network.networkType);
                                             const Icon = getNetworkIcon(network.networkType);
+                                            const { state, roundtripTime } = getPingStatus(network.ipAddress);
 
                                             return (
                                                 <div
@@ -1216,13 +1331,8 @@ const DeviceMonitor = () => {
                                                             </p>
                                                         </div>
 
-                                                        {/* STATUS */}
-                                                        <span
-                                                            className={`ml-auto w-2.5 h-2.5 rounded-full ${Connected
-                                                                ? "bg-green-500"
-                                                                : "bg-red-500"
-                                                                }`}
-                                                        />
+                                                        {/* STATUS — now driven by real ping result */}
+                                                        <PingStatusDot ip={network.ipAddress} />
                                                     </div>
 
                                                     {/* DETAILS */}
@@ -1259,6 +1369,29 @@ const DeviceMonitor = () => {
                                                                 }
                                                             >
                                                                 {network.macAddress}
+                                                            </p>
+                                                        </div>
+
+                                                        {/* ✅ NEW: Ping status text */}
+                                                        <div>
+                                                            <p className="text-xs uppercase text-gray-500">
+                                                                Ping Status
+                                                            </p>
+                                                            <p
+                                                                className={`font-semibold ${state === "online"
+                                                                        ? "text-green-600"
+                                                                        : state === "offline"
+                                                                            ? "text-red-600"
+                                                                            : "text-gray-400"
+                                                                    }`}
+                                                            >
+                                                                {state === "checking"
+                                                                    ? "Checking..."
+                                                                    : state === "online"
+                                                                        ? `Online${roundtripTime != null ? ` — ${roundtripTime}ms` : ""}`
+                                                                        : state === "offline"
+                                                                            ? "Offline"
+                                                                            : "N/A"}
                                                             </p>
                                                         </div>
 
@@ -1560,7 +1693,7 @@ const DeviceMonitor = () => {
 
                                                             {/* Action */}
                                                             <td className="px-6 py-4 text-center">
-                                                                
+
                                                                 {(software.uninstallString !== "Unknown" ||
                                                                     software.uninstallString == null) &&
                                                                     software.softwareDetailsID !== undefined &&
