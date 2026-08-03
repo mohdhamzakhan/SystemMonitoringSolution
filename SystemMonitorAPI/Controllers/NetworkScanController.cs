@@ -298,7 +298,7 @@ namespace SystemMonitorAPI.Controllers
         }
         [HttpGet("port-ap-map")]
         public async Task<ActionResult<IEnumerable<DevicePortDto>>> GetPortMapForAP(
-    [FromQuery] bool unmappedOnly = false)
+            [FromQuery] bool unmappedOnly = false)
         {
             var query = _db.SwitchNeighbors
                 .Include(n => n.LocalSwitch)
@@ -320,7 +320,15 @@ namespace SystemMonitorAPI.Controllers
                 .OrderBy(x => x.LocalSwitchId)
                 .ToListAsync();
 
-            var result = devices.Select(d => new DevicePortDto
+            // 🔧 Drop rows with a missing/garbled RemoteSysName (corrupted SNMP/LLDP
+            // decode) and de-dupe remaining APs by name, keeping the most recent sighting.
+            var deduped = devices
+                .Where(d => IsValidSysName(d.RemoteSysName))
+                .GroupBy(d => d.RemoteSysName)
+                .Select(g => g.OrderByDescending(x => x.LastSeen).First())
+                .ToList();
+
+            var result = deduped.Select(d => new DevicePortDto
             {
                 Hostname = d.RemoteSysName,
                 Username = d.RemoteSysName,
@@ -339,6 +347,22 @@ namespace SystemMonitorAPI.Controllers
             return Ok(result);
         }
 
+        // ─── VALIDATION HELPER ─────────────────────────────────────────────────
+        private static bool IsValidSysName(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            // Reject names containing the Unicode replacement character or
+            // control characters — these indicate a corrupted/garbled SNMP decode.
+            if (name.Any(c => c == '\uFFFD' || char.IsControl(c))) return false;
+
+            // Require at least one real letter or digit so pure-symbol garbage
+            // ("? ??Yf" style) is excluded, while legitimate names like
+            // "FG-WH-AP02" still pass.
+            if (!name.Any(char.IsLetterOrDigit)) return false;
+
+            return true;
+        }
 
         [HttpGet("endpoints")]
         public async Task<ActionResult<IEnumerable<EndpointDto>>> GetEndpoints(

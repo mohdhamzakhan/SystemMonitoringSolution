@@ -243,14 +243,15 @@ export default function NetworkDashboard() {
 
                 {/* ── Tabs ── */}
                 <div style={styles.tabBar}>
-                    {["list", "topology", "userTopology", "apTopology"].map(t => (
+                    {["list", "topology", "userTopology", "apTopology", "fullTopology"].map(t => (
                         <button key={t}
                             style={{ ...styles.tab, ...(tab === t ? styles.tabActive : {}) }}
                             onClick={() => setTab(t)}>
                             {t === "list" ? "📋 Switch List"
                                 : t === "topology" ? "🗺️ Topology Map"
                                     : t === "userTopology" ? "👥 User Topology"
-                                        : "📡 AP Topology"}
+                                        : t === "apTopology" ? "📡 AP Topology"
+                                            : "🌐 Full Network"}
                         </button>
                     ))}
                 </div>
@@ -396,6 +397,18 @@ export default function NetworkDashboard() {
                         topology={topology}
                         portMap={apPortMap}
                         switches={switches}
+                        onSelectNode={id => {
+                            const sw = switches.find(s => s.switchId === id);
+                            if (sw) setSelected(sw);
+                        }}
+                    />
+                )}
+
+                {tab === "fullTopology" && (
+                    <FullNetworkDiagram
+                        topology={topology}
+                        portMap={portMap}
+                        apPortMap={apPortMap}
                         onSelectNode={id => {
                             const sw = switches.find(s => s.switchId === id);
                             if (sw) setSelected(sw);
@@ -753,6 +766,580 @@ function TopologyDiagram({ topology, onSelectNode, onRefresh }) {
             />
 
             {nodeCount === 0 && (
+                <div style={styles.topoEmpty}>
+                    No switches found. Run a scan to populate the topology.
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ─── Full Network Diagram (Switches + Firewalls + APs + Users) ───────────────
+function isFirewallNode(n) {
+    const label = (n.label || "").toLowerCase();
+    const vendor = (n.vendor || "").toLowerCase();
+    return label.includes("fw") || label.includes("firewall") ||
+        label.includes("asa") || label.includes("ftd") ||
+        label.includes("fortigate") || label.includes("fortiswitch") ||
+        vendor.includes("fortinet") || vendor.includes("palo") ||
+        vendor.includes("fortigate");
+}
+
+// Assumes DataSet, Network, isFirewallNode, getNodeColor, createSwitchTooltip, styles, TopologySearchBox are imported
+
+// ─── Level assignment for hierarchical layout ─────────────────────────────
+// ─── Level computation: BFS outward from L3 through real switch links ────────
+// Firewall = 1, L3 = 2. Every other switch's level is 1 + its parent's level,
+// determined by hop distance from L3 through actual scanned links — so a
+// second L2 switch chained behind a first one lands one level deeper.
+function computeSwitchLevels(rawNodes, rawEdges) {
+    const levels = new Map();
+    const adjacency = new Map();
+
+    rawNodes.forEach((n) => adjacency.set(n.id, []));
+
+    (rawEdges ?? []).forEach((e) => {
+        adjacency.get(e.from)?.push(e.to);
+        adjacency.get(e.to)?.push(e.from);
+    });
+
+    const firewalls = rawNodes.filter(isFirewallNode);
+    const l3s = rawNodes.filter((n) => !isFirewallNode(n) && n.switchLayer === "L3");
+
+    firewalls.forEach((fw) => levels.set(fw.id, 1));
+    l3s.forEach((l3) => levels.set(l3.id, 2));
+
+    // BFS from L3 outward; each hop away adds one level
+    const queue = [...l3s.map((n) => n.id)];
+
+    while (queue.length) {
+        const current = queue.shift();
+        const currentLevel = levels.get(current);
+        const neighbors = adjacency.get(current) || [];
+
+        neighbors.forEach((nb) => {
+            if (!levels.has(nb)) {
+                levels.set(nb, currentLevel + 1);
+                queue.push(nb);
+            }
+        });
+    }
+
+    // Orphans (no path to any L3, or no L3 exists at all) default to level 3
+    rawNodes.forEach((n) => {
+        if (!levels.has(n.id)) levels.set(n.id, 3);
+    });
+
+    return levels;
+}
+
+function FullNetworkDiagram({ topology, portMap, apPortMap, onSelectNode }) {
+    const containerRef = useRef(null);
+    const networkRef = useRef(null);
+    const wrapperRef = useRef(null);
+    const nodesDataRef = useRef(null);
+    const onSelectNodeRef = useRef(onSelectNode);
+
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [matchCount, setMatchCount] = useState(null);
+    const [showUsers, setShowUsers] = useState(true);
+    const [showAPs, setShowAPs] = useState(true);
+
+    // Keep ref in sync for event listeners
+    useEffect(() => {
+        onSelectNodeRef.current = onSelectNode;
+    }, [onSelectNode]);
+
+    // Handle Fullscreen changes
+    useEffect(() => {
+        const handler = () => {
+            const full = !!document.fullscreenElement;
+            setIsFullscreen(full);
+            setTimeout(() => {
+                networkRef.current?.redraw();
+                networkRef.current?.fit({
+                    animation: { duration: 400, easingFunction: "easeInOutQuad" }
+                });
+            }, 300);
+        };
+
+        document.addEventListener("fullscreenchange", handler);
+        return () => document.removeEventListener("fullscreenchange", handler);
+    }, []);
+
+    function handleFullscreen() {
+        if (!document.fullscreenElement) {
+            wrapperRef.current?.requestFullscreen();
+        } else {
+            document.exitFullscreen();
+        }
+    }
+
+    // Derived Data
+    const users = (portMap ?? [])
+        .filter((d) => d.connectedSwitchId != null)
+        .map((d, idx) => ({
+            ...d,
+            _uid: `u-${d.hostname || "user"}-${d.connectedSwitchId}-${d.connectedPort || idx}-${idx}`
+        }));
+
+    const aps = (apPortMap ?? [])
+        .filter((d) => d.connectedSwitchId != null)
+        .map((d, idx) => ({
+            ...d,
+            _uid: `ap-${d.hostname || "ap"}-${d.connectedSwitchId}-${d.connectedPort || idx}-${idx}`
+        }));
+
+    // Search Logic
+    const handleSearch = useCallback((term) => {
+        const allNodesData = nodesDataRef.current;
+        const rawNodes = topology?.nodes ?? [];
+        if (!allNodesData) return;
+
+        const resetSwitch = (n) => ({
+            id: `sw-${n.id}`,
+            color: getNodeColor(n),
+            opacity: 1,
+            borderWidth: 2
+        });
+
+        const resetUser = (d) => ({
+            id: `usr-${d._uid}`,
+            color: d.status === "Offline"
+                ? { background: "#fee2e2", border: "#ef4444" }
+                : { background: "#fef9c3", border: "#f59e0b" },
+            opacity: 1,
+            borderWidth: 1.5
+        });
+
+        const resetAP = (d) => ({
+            id: `apn-${d._uid}`,
+            color: d.status === "Offline"
+                ? { background: "#fee2e2", border: "#ef4444" }
+                : { background: "#dbeafe", border: "#0ea5e9" },
+            opacity: 1,
+            borderWidth: 1.5
+        });
+
+        if (!term.trim()) {
+            allNodesData.update(rawNodes.map(resetSwitch));
+            allNodesData.update(users.map(resetUser));
+            allNodesData.update(aps.map(resetAP));
+            setMatchCount(null);
+            networkRef.current?.fit({
+                animation: { duration: 400, easingFunction: "easeInOutQuad" }
+            });
+            return;
+        }
+
+        const q = term.toLowerCase();
+        const matchIds = [];
+
+        // Filter Switches
+        allNodesData.update(rawNodes.map((n) => {
+            const hay = `${n.label} ${n.ipAddress} ${n.vendor} ${n.model} ${n.switchLayer}`.toLowerCase();
+            const isMatch = hay.includes(q);
+            if (isMatch) matchIds.push(`sw-${n.id}`);
+
+            return {
+                id: `sw-${n.id}`,
+                color: isMatch ? { background: "#fef08a", border: "#f59e0b" } : getNodeColor(n),
+                opacity: isMatch ? 1 : 0.15,
+                borderWidth: isMatch ? 3 : 1,
+            };
+        }));
+
+        // Filter Users
+        allNodesData.update(users.map((d) => {
+            const hay = `${d.hostname} ${d.username} ${d.department} ${d.connectedPort}`.toLowerCase();
+            const isMatch = hay.includes(q);
+            if (isMatch) matchIds.push(`usr-${d._uid}`);
+
+            const base = resetUser(d).color;
+            return {
+                id: `usr-${d._uid}`,
+                color: isMatch ? { background: "#fef08a", border: "#f59e0b" } : base,
+                opacity: isMatch ? 1 : 0.15,
+                borderWidth: isMatch ? 3 : 1
+            };
+        }));
+
+        // Filter APs
+        allNodesData.update(aps.map((d) => {
+            const hay = `${d.hostname} ${d.connectedPort} ${d.status}`.toLowerCase();
+            const isMatch = hay.includes(q);
+            if (isMatch) matchIds.push(`apn-${d._uid}`);
+
+            const base = resetAP(d).color;
+            return {
+                id: `apn-${d._uid}`,
+                color: isMatch ? { background: "#fef08a", border: "#f59e0b" } : base,
+                opacity: isMatch ? 1 : 0.15,
+                borderWidth: isMatch ? 3 : 1
+            };
+        }));
+
+        setMatchCount(matchIds.length);
+
+        if (matchIds.length > 0) {
+            networkRef.current?.selectNodes(matchIds);
+            networkRef.current?.fit({
+                nodes: matchIds,
+                animation: { duration: 500, easingFunction: "easeInOutQuad" }
+            });
+        }
+    }, [topology, users, aps]);
+
+    // Topology Vis.js Setup
+    useEffect(() => {
+        if (!topology || !containerRef.current) return;
+
+        networkRef.current?.destroy();
+        networkRef.current = null;
+        nodesDataRef.current = null;
+
+        const { nodes: rawNodes, edges: rawEdges } = topology;
+        if (!rawNodes?.length) return;
+
+        const switchLevels = computeSwitchLevels(rawNodes, rawEdges);
+
+        // Build Switch Nodes
+        const switchNodes = rawNodes.map((n) => ({
+            id: `sw-${n.id}`,
+            label: `${n.label}\n${n.ipAddress}`,
+            color: getNodeColor(n),
+            font: { color: "#1e293b", size: 12, face: "Inter, sans-serif", multi: true },
+            shape: isFirewallNode(n) ? "hexagon" : (n.switchLayer === "L3" ? "diamond" : "box"),
+            widthConstraint: isFirewallNode(n) || n.switchLayer === "L3" ? undefined : { minimum: 120, maximum: 150 },
+            borderWidth: 2,
+            size: isFirewallNode(n) ? 22 : (n.switchLayer === "L3" ? 26 : undefined),
+            margin: 10,
+            shadow: { enabled: true, color: "rgba(0,0,0,0.08)", size: 6 },
+            title: createSwitchTooltip(n),
+            level: switchLevels.get(n.id),
+            _type: "switch",
+            _switchId: n.id,
+        }));
+
+        // 🔧 Port-name labels removed from the edge itself (they were cluttering
+        // the whole canvas) — full local↔remote port detail now lives in the
+        // edge's hover tooltip instead
+        const edgeTooltip = (localPort, remotePort, protocol) => {
+            const div = document.createElement("div");
+            div.textContent = `${localPort || "?"} → ${remotePort || "?"}${protocol ? ` (${protocol})` : ""}`;
+            return div;
+        };
+
+        // Build Switch Edges
+        const switchEdges = (rawEdges ?? []).map((e) => {
+            const fromNode = rawNodes.find((n) => n.id === e.from);
+            const toNode = rawNodes.find((n) => n.id === e.to);
+
+            const isDown = !fromNode?.isReachable || !toNode?.isReachable;
+            const fromLevel = switchLevels.get(e.from) ?? 0;
+            const toLevel = switchLevels.get(e.to) ?? 0;
+
+            // Ensure flow goes from top to bottom
+            const [top, bottom] = fromLevel <= toLevel ? [e.from, e.to] : [e.to, e.from];
+
+            return {
+                id: `edge-sw-${e.id}`,
+                from: `sw-${top}`,
+                to: `sw-${bottom}`,
+                label: isDown ? "✕" : "",
+                title: edgeTooltip(e.localPort, e.remotePort, e.protocol),
+                color: {
+                    color: isDown ? "#ef4444" : "#94a3b8",
+                    highlight: "#f59e0b",
+                    hover: "#f59e0b",
+                    opacity: isDown ? 0.6 : 0.7
+                },
+                font: { color: "#ef4444", size: 13, align: "middle", background: "#ffffff", bold: true },
+                dashes: isDown,
+                width: isDown ? 1.5 : 1.5,
+                smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.5 },
+                arrows: { to: { enabled: false } },
+            };
+        });
+
+        const l3Nodes = rawNodes.filter((n) => !isFirewallNode(n) && n.switchLayer === "L3");
+        const firewallNodes = rawNodes.filter(isFirewallNode);
+
+        const realEdgeSwitchIds = new Set();
+        (rawEdges ?? []).forEach((e) => {
+            realEdgeSwitchIds.add(e.from);
+            realEdgeSwitchIds.add(e.to);
+        });
+
+        // Inferred edges for standalone firewalls
+        const inferredFirewallEdges = firewallNodes
+            .filter((fw) => !realEdgeSwitchIds.has(fw.id) && l3Nodes.length > 0)
+            .map((fw) => ({
+                id: `edge-inferred-fw-${fw.id}`,
+                from: `sw-${fw.id}`,
+                to: `sw-${l3Nodes[0].id}`,
+                label: "",
+                title: "Inferred link (no LLDP/CDP data)",
+                color: { color: "#c4b5fd", highlight: "#a855f7", hover: "#a855f7" },
+                dashes: [4, 4],
+                width: 1.5,
+                smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.5 },
+                arrows: { to: { enabled: false } },
+            }));
+
+        // Tooltip Helpers
+        const userTooltip = (d) => {
+            const div = document.createElement("div");
+
+            const title = document.createElement("div");
+            title.textContent = d.hostname || "Unknown";
+            title.style.fontWeight = "600";
+
+            const user = document.createElement("div");
+            user.textContent = `User: ${d.username || "—"}`;
+
+            const dept = document.createElement("div");
+            dept.textContent = `Dept: ${d.department || "—"}`;
+
+            const port = document.createElement("div");
+            port.textContent = `Port: ${d.connectedPort || "—"}`;
+
+            div.append(title, user, dept, port);
+            return div;
+        };
+
+        const apTooltip = (d) => {
+            const div = document.createElement("div");
+
+            const title = document.createElement("div");
+            title.textContent = d.hostname || "AP";
+            title.style.fontWeight = "600";
+
+            const port = document.createElement("div");
+            port.textContent = `Port: ${d.connectedPort || "—"}`;
+
+            const status = document.createElement("div");
+            status.textContent = `Status: ${d.status || "—"}`;
+
+            div.append(title, port, status);
+            return div;
+        };
+
+        // Build User Nodes & Edges
+        const userNodes = showUsers ? users.map((d) => ({
+            id: `usr-${d._uid}`,
+            color: d.status === "Offline"
+                ? { background: "#fee2e2", border: "#ef4444" }
+                : { background: "#fef9c3", border: "#f59e0b" },
+            shape: "dot",
+            size: 8,
+            borderWidth: 1.5,
+            title: userTooltip(d),
+            level: (switchLevels.get(d.connectedSwitchId) ?? 2) + 1,
+            _type: "user",
+        })) : [];
+
+        const userEdges = showUsers ? users.map((d) => ({
+            id: `edge-usr-${d._uid}`,
+            from: `sw-${d.connectedSwitchId}`,
+            to: `usr-${d._uid}`,
+            color: { color: "#fde68a", highlight: "#f59e0b", hover: "#f59e0b" },
+            dashes: [3, 4],
+            width: 1,
+            smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.5 },
+            arrows: { to: { enabled: false } },
+        })) : [];
+
+        // Build AP Nodes & Edges
+        const apNodes = showAPs ? aps.map((d) => ({
+            id: `apn-${d._uid}`,
+            color: d.status === "Offline"
+                ? { background: "#fee2e2", border: "#ef4444" }
+                : { background: "#dbeafe", border: "#0ea5e9" },
+            shape: "triangleDown",
+            size: 10,
+            borderWidth: 1.5,
+            title: apTooltip(d),
+            level: (switchLevels.get(d.connectedSwitchId) ?? 2) + 1,
+            _type: "ap",
+        })) : [];
+
+        const apEdges = showAPs ? aps.map((d) => ({
+            id: `edge-ap-${d._uid}`,
+            from: `sw-${d.connectedSwitchId}`,
+            to: `apn-${d._uid}`,
+            color: { color: "#bae6fd", highlight: "#0ea5e9", hover: "#0ea5e9" },
+            dashes: [2, 3],
+            width: 1,
+            smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.5 },
+            arrows: { to: { enabled: false } },
+        })) : [];
+
+        // Combine DataSets
+        const allNodes = new DataSet([...switchNodes, ...userNodes, ...apNodes]);
+        const allEdges = new DataSet([...switchEdges, ...inferredFirewallEdges, ...userEdges, ...apEdges]);
+        nodesDataRef.current = allNodes;
+
+        // 🔧 Canvas width scales with the widest level using a per-node footprint
+        // wide enough for the actual box size (150px) plus real breathing room
+        const levelCounts = {};
+        allNodes.forEach((n) => {
+            levelCounts[n.level] = (levelCounts[n.level] || 0) + 1;
+        });
+
+        const widestLevel = Math.max(1, ...Object.values(levelCounts));
+        const computedWidth = Math.max(1400, widestLevel * 190);
+        containerRef.current.style.width = `${computedWidth}px`;
+
+        // Vis.js Options
+        const options = {
+            layout: {
+                hierarchical: {
+                    enabled: true,
+                    direction: "UD",
+                    sortMethod: "directed",
+                    levelSeparation: 220,
+                    nodeSpacing: 190, // 🔧 now exceeds box maxWidth (150) so boxes never touch
+                    treeSpacing: 380,
+                    blockShifting: true,
+                    edgeMinimization: true,
+                    parentCentralization: true,
+                },
+            },
+            physics: {
+                enabled: true,
+                hierarchicalRepulsion: {
+                    nodeDistance: 190,
+                    springLength: 150,
+                    springConstant: 0.03,
+                    damping: 0.5,
+                    avoidOverlap: 1,
+                },
+                solver: "hierarchicalRepulsion",
+                stabilization: { enabled: true, iterations: 400, updateInterval: 25 },
+            },
+            // 🔧 Explicit interaction flags — dragNodes must stay true, and we no
+            // longer disable physics afterward, so drags behave normally
+            interaction: {
+                hover: true,
+                tooltipDelay: 150,
+                zoomView: true,
+                dragView: true,
+                dragNodes: true,
+                multiselect: false,
+            },
+            nodes: { borderWidth: 2, borderWidthSelected: 3 },
+            edges: { width: 1, smooth: true },
+        };
+
+        networkRef.current = new Network(
+            containerRef.current,
+            { nodes: allNodes, edges: allEdges },
+            options
+        );
+
+        networkRef.current.on("selectNode", ({ nodes: sel }) => {
+            if (!sel[0]) return;
+            const node = allNodes.get(sel[0]);
+            if (node?._type === "switch") {
+                onSelectNodeRef.current(node._switchId);
+            }
+        });
+
+        networkRef.current.on("stabilizationIterationsDone", () => {
+            // 🔧 REMOVED: physics:false here — that was breaking node dragging.
+            // Physics stays on but has already converged, so it stays calm at
+            // rest while still allowing you to drag any node afterward.
+            networkRef.current?.fit({
+                animation: { duration: 600, easingFunction: "easeInOutQuad" }
+            });
+        });
+
+        return () => {
+            networkRef.current?.destroy();
+            networkRef.current = null;
+            nodesDataRef.current = null;
+        };
+    }, [topology, users, aps, showUsers, showAPs]);
+
+    // Render variables
+    const switchCount = topology?.nodes?.length ?? 0;
+    const fwCount = (topology?.nodes ?? []).filter(isFirewallNode).length;
+
+    return (
+        <div
+            ref={wrapperRef}
+            style={{ background: "#f8fafc", ...(isFullscreen ? styles.fullscreenWrapper : {}) }}
+        >
+            <div style={styles.topoBar}>
+                <div style={styles.topoLegend}>
+                    <span style={styles.legendItem}>
+                        <span style={{ ...styles.legendDot, background: "#fdf4ff", border: "2px solid #a855f7" }} />
+                        Firewall
+                    </span>
+                    <span style={styles.legendItem}>
+                        <span style={{ ...styles.legendDot, background: "#dbeafe", border: "2px solid #3b82f6" }} />
+                        L3 switch
+                    </span>
+                    <span style={styles.legendItem}>
+                        <span style={{ ...styles.legendDot, background: "#dcfce7", border: "2px solid #22c55e" }} />
+                        L2 switch
+                    </span>
+                    <span style={styles.legendItem}>
+                        <span style={{ ...styles.legendDot, background: "#dbeafe", border: "2px solid #0ea5e9", borderRadius: "50%" }} />
+                        AP
+                    </span>
+                    <span style={styles.legendItem}>
+                        <span style={{ ...styles.legendDot, background: "#fef9c3", border: "2px solid #f59e0b", borderRadius: "50%" }} />
+                        User
+                    </span>
+                    <span style={styles.legendItem}>
+                        <span style={{ ...styles.legendDot, background: "#fee2e2", border: "2px solid #ef4444" }} />
+                        Offline
+                    </span>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <label style={styles.toggleLabel}>
+                        <input
+                            type="checkbox"
+                            checked={showUsers}
+                            onChange={(e) => setShowUsers(e.target.checked)}
+                        /> Users
+                    </label>
+                    <label style={styles.toggleLabel}>
+                        <input
+                            type="checkbox"
+                            checked={showAPs}
+                            onChange={(e) => setShowAPs(e.target.checked)}
+                        /> APs
+                    </label>
+                    <span style={{ fontSize: 12, color: "#64748b" }}>
+                        {switchCount} devices ({fwCount} firewall) · {users.length} users · {aps.length} APs
+                    </span>
+                    <button style={styles.btnSm} onClick={handleFullscreen}>
+                        {isFullscreen ? "⛶ Exit fullscreen" : "⛶ Fullscreen"}
+                    </button>
+                </div>
+            </div>
+
+            <div style={styles.topoSearchRow}>
+                <TopologySearchBox
+                    onSearch={handleSearch}
+                    placeholder="🔍 Search switches, firewalls, users, or APs…"
+                />
+                {matchCount !== null && (
+                    <span style={matchCount > 0 ? styles.matchBadgeFound : styles.matchBadgeNone}>
+                        {matchCount > 0 ? `${matchCount} match${matchCount !== 1 ? "es" : ""}` : "No matches"}
+                    </span>
+                )}
+            </div>
+
+            <div style={{ ...styles.topoCanvas, ...(isFullscreen ? styles.fullscreenCanvas : {}) }}>
+                <div ref={containerRef} style={{ height: "100%", minWidth: "100%" }} />
+            </div>
+
+            {!topology?.nodes?.length && (
                 <div style={styles.topoEmpty}>
                     No switches found. Run a scan to populate the topology.
                 </div>
@@ -1471,10 +2058,9 @@ function APTopologyDiagram({ topology, portMap, switches, onSelectNode }) {
                 )}
             </div>
 
-            <div
-                ref={containerRef}
-                style={{ ...styles.topoCanvas, ...(isFullscreen ? styles.fullscreenCanvas : {}) }}
-            />
+            <div style={{ ...styles.topoCanvas, ...(isFullscreen ? styles.fullscreenCanvas : {}) }}>
+                <div ref={containerRef} style={{ height: "100%", minWidth: "100%" }} />
+            </div>
 
             {!topology?.nodes?.length && (
                 <div style={styles.topoEmpty}>No switches found. Run a scan to populate topology.</div>
@@ -1519,12 +2105,13 @@ const styles = {
     protocolBadge: { marginLeft: 6, background: "#f1f5f9", color: "#475569", padding: "1px 6px", borderRadius: 4, fontSize: 10, fontWeight: 500 },
 
     loading: { color: "#94a3b8", padding: 40, textAlign: "center", background: "#fff", borderRadius: 12 },
+    toggleLabel: { display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#475569", cursor: "pointer" },
 
     topoBar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 },
     topoLegend: { display: "flex", gap: 16, flexWrap: "wrap" },
     legendItem: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#475569" },
     legendDot: { display: "inline-block", width: 14, height: 14, borderRadius: 3 },
-    topoCanvas: { height: 620, background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" },
+    topoCanvas: { height: 750, background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.05)", overflowX: "auto" },
     topoWarn: { fontSize: 12, color: "#b45309", background: "#fef3c7", padding: "3px 10px", borderRadius: 6 },
     topoEmpty: { textAlign: "center", color: "#94a3b8", padding: 40 },
     topoError: { background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 12, padding: 24, color: "#be123c" },
