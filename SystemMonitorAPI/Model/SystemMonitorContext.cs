@@ -33,6 +33,11 @@ namespace SystemMonitorAPI.Model
         public DbSet<SmmSwitchPort> SwitchPorts { get; set; }
         public DbSet<SmmSwitchNeighbor> SwitchNeighbors { get; set; }
 
+        // ── Documnet Classification ─────────────────────────────────── 
+        public DbSet<DocumentClassificationLog> DocumentClassifications { get; set; }
+        public DbSet<DocumentClassificationSettings> DocumentClassificationSettings { get; set; }
+
+
         #endregion
 
         #region Installation
