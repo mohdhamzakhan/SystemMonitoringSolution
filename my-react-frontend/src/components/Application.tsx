@@ -15,6 +15,7 @@ import VulnerabilityDashboard from "./VulnerabilityDashboard.tsx";
 import NetworkDashboard from "./Networkdashboard.jsx";
 import ProtectedRoute from "../ProtectedRoute.tsx";
 import FolderTreePage from "./FolderTree.jsx"
+import DocumentClassificationDashboard from "./DocumentClassificationDashboard.tsx"
 
 const Application = () => (
     <Router>
@@ -41,6 +42,7 @@ const Application = () => (
             <Route path="/vulnerability-dashboard" element={<ProtectedRoute adminOnly><VulnerabilityDashboard /></ProtectedRoute>} />
             <Route path="/NetworkDashboard" element={<ProtectedRoute adminOnly><NetworkDashboard /></ProtectedRoute>} />
             <Route path="/folder" element={<ProtectedRoute adminOnly><FolderTreePage /></ProtectedRoute>} />
+            <Route path="/document-classification" element={<ProtectedRoute adminOnly><DocumentClassificationDashboard /></ProtectedRoute>} />
         </Routes>
     </Router>
 );

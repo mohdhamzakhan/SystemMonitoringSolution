@@ -12,6 +12,8 @@ const UpdateInfoForm = () => {
     const [updateName, setUpdateName] = useState("");
     const [isLocal, setIsLocal] = useState(false);
     const [isActive, setIsActive] = useState(true);
+    const [priority, setPriority] = useState(100);
+    const [updateType, setUpdateType] = useState<"Software" | "WindowsUpdate" | "OfficeUpdate">("Software");
     const [editingId, setEditingId] = useState<number | null>(null);
     const [activeUpdates, setActiveUpdates] = useState<
         {
@@ -23,6 +25,8 @@ const UpdateInfoForm = () => {
             isLocal: boolean;
             isActive: boolean;
             createdDate: string;
+            priority: number;
+            updateType: string;
         }[]
     >([]);
     const [loading, setLoading] = useState(false);
@@ -70,6 +74,8 @@ const UpdateInfoForm = () => {
         setParameters(update.parameters);
         setIsLocal(update.isLocal || false);
         setIsActive(update.isActive !== undefined ? update.isActive : true);
+        setPriority(update.priority ?? 100);
+        setUpdateType((update.updateType as any) || "Software");
         setEditingId(update.updateID);
         setError("");
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -82,12 +88,15 @@ const UpdateInfoForm = () => {
         setParameters("");
         setIsLocal(false);
         setIsActive(true);
+        setPriority(100);
+        setUpdateType("Software");
         setEditingId(null);
         setError("");
     };
 
     const handleSubmit = async () => {
-        if (!updateName || !filePath || !fileName || !parameters) {
+        // Windows Update / Office Update don't push a file, so only require file details for Software.
+        if (!updateName || (updateType === "Software" && (!filePath || !fileName || !parameters))) {
             setError("All fields are required");
             return;
         }
@@ -104,6 +113,8 @@ const UpdateInfoForm = () => {
             CreatedDate: new Date().toISOString(),
             IsActive: isActive,
             IsLocal: isLocal,
+            Priority: priority,
+            UpdateType: updateType,
             SystemUpdates: []
         };
 
@@ -240,42 +251,78 @@ const UpdateInfoForm = () => {
 
                                     <div>
                                         <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            File Path <span className="text-red-500">*</span>
+                                            Update Type
                                         </label>
-                                        <input
-                                            type="text"
-                                            value={filePath}
-                                            onChange={(e) => setFilePath(e.target.value)}
-                                            className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-                                            placeholder="e.g., /updates/patches/"
-                                        />
+                                        <select
+                                            value={updateType}
+                                            onChange={(e) => setUpdateType(e.target.value as any)}
+                                            className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition bg-white"
+                                        >
+                                            <option value="Software">Software (push installer file)</option>
+                                            <option value="WindowsUpdate">Windows Update (patch scan + install)</option>
+                                            <option value="OfficeUpdate">Office Update (Click-to-Run)</option>
+                                        </select>
                                     </div>
 
                                     <div>
                                         <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            File Name <span className="text-red-500">*</span>
+                                            Priority
                                         </label>
                                         <input
-                                            type="text"
-                                            value={fileName}
-                                            onChange={(e) => setFileName(e.target.value)}
+                                            type="number"
+                                            value={priority}
+                                            onChange={(e) => setPriority(parseInt(e.target.value, 10) || 0)}
                                             className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-                                            placeholder="e.g., update_v2.1.exe"
+                                            placeholder="e.g., 1"
                                         />
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Lower number runs first. An update won't start until every lower-numbered
+                                            update assigned to the same device has completed.
+                                        </p>
                                     </div>
 
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            Parameters <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={parameters}
-                                            onChange={(e) => setParameters(e.target.value)}
-                                            className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-                                            placeholder="e.g., -silent -restart"
-                                        />
-                                    </div>
+                                    {updateType === "Software" && (
+                                        <>
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                                    File Path <span className="text-red-500">*</span>
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={filePath}
+                                                    onChange={(e) => setFilePath(e.target.value)}
+                                                    className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                                                    placeholder="e.g., /updates/patches/"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                                    File Name <span className="text-red-500">*</span>
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={fileName}
+                                                    onChange={(e) => setFileName(e.target.value)}
+                                                    className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                                                    placeholder="e.g., update_v2.1.exe"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                                    Parameters <span className="text-red-500">*</span>
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={parameters}
+                                                    onChange={(e) => setParameters(e.target.value)}
+                                                    className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                                                    placeholder="e.g., -silent -restart"
+                                                />
+                                            </div>
+                                        </>
+                                    )}
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="flex items-center p-3 bg-gray-50 rounded-lg">
@@ -310,8 +357,8 @@ const UpdateInfoForm = () => {
                                             onClick={handleSubmit}
                                             disabled={submitting}
                                             className={`flex items-center justify-center w-full px-4 py-3 font-semibold rounded-lg shadow-md transition-all duration-200 ${editingId
-                                                    ? "bg-amber-600 hover:bg-amber-700 text-white"
-                                                    : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                                ? "bg-amber-600 hover:bg-amber-700 text-white"
+                                                : "bg-indigo-600 hover:bg-indigo-700 text-white"
                                                 } disabled:opacity-50 disabled:cursor-not-allowed`}
                                         >
                                             {submitting ? (
@@ -365,8 +412,8 @@ const UpdateInfoForm = () => {
                                     <button
                                         onClick={() => setFilterStatus("all")}
                                         className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === "all"
-                                                ? "bg-white text-indigo-600 shadow-sm"
-                                                : "text-gray-600 hover:text-gray-900"
+                                            ? "bg-white text-indigo-600 shadow-sm"
+                                            : "text-gray-600 hover:text-gray-900"
                                             }`}
                                     >
                                         All ({activeUpdates.length})
@@ -374,8 +421,8 @@ const UpdateInfoForm = () => {
                                     <button
                                         onClick={() => setFilterStatus("active")}
                                         className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === "active"
-                                                ? "bg-white text-green-600 shadow-sm"
-                                                : "text-gray-600 hover:text-gray-900"
+                                            ? "bg-white text-green-600 shadow-sm"
+                                            : "text-gray-600 hover:text-gray-900"
                                             }`}
                                     >
                                         Active ({activeUpdates.filter(u => u.isActive).length})
@@ -383,8 +430,8 @@ const UpdateInfoForm = () => {
                                     <button
                                         onClick={() => setFilterStatus("inactive")}
                                         className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${filterStatus === "inactive"
-                                                ? "bg-white text-gray-600 shadow-sm"
-                                                : "text-gray-600 hover:text-gray-900"
+                                            ? "bg-white text-gray-600 shadow-sm"
+                                            : "text-gray-600 hover:text-gray-900"
                                             }`}
                                     >
                                         Inactive ({activeUpdates.filter(u => !u.isActive).length})
@@ -403,10 +450,10 @@ const UpdateInfoForm = () => {
                                             <div
                                                 key={update.updateID}
                                                 className={`border rounded-lg p-4 transition-all duration-200 ${editingId === update.updateID
-                                                        ? "border-amber-400 bg-amber-50"
-                                                        : update.isActive
-                                                            ? "border-gray-200 hover:border-indigo-300 hover:shadow-md"
-                                                            : "border-gray-200 bg-gray-50 opacity-75"
+                                                    ? "border-amber-400 bg-amber-50"
+                                                    : update.isActive
+                                                        ? "border-gray-200 hover:border-indigo-300 hover:shadow-md"
+                                                        : "border-gray-200 bg-gray-50 opacity-75"
                                                     }`}
                                             >
                                                 <div className="flex justify-between items-start">
@@ -415,15 +462,23 @@ const UpdateInfoForm = () => {
                                                             <h3 className="text-lg font-semibold text-gray-800 truncate">
                                                                 {update.updateName}
                                                             </h3>
-                                                            <div className="flex gap-2">
+                                                            <div className="flex gap-2 flex-wrap">
                                                                 {update.isLocal && (
                                                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
                                                                         Local
                                                                     </span>
                                                                 )}
+                                                                {update.updateType && update.updateType !== "Software" && (
+                                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                                                                        {update.updateType === "WindowsUpdate" ? "Windows Update" : "Office Update"}
+                                                                    </span>
+                                                                )}
+                                                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                                                                    Priority {update.priority ?? 100}
+                                                                </span>
                                                                 <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${update.isActive
-                                                                        ? "bg-green-100 text-green-800"
-                                                                        : "bg-gray-200 text-gray-700"
+                                                                    ? "bg-green-100 text-green-800"
+                                                                    : "bg-gray-200 text-gray-700"
                                                                     }`}>
                                                                     {update.isActive ? "Active" : "Inactive"}
                                                                 </span>
@@ -450,8 +505,8 @@ const UpdateInfoForm = () => {
                                                             onClick={() => handleToggleActive(update.updateID, update.isActive)}
                                                             disabled={togglingId === update.updateID}
                                                             className={`p-2 rounded-lg transition-colors ${update.isActive
-                                                                    ? "text-green-600 hover:bg-green-50"
-                                                                    : "text-gray-400 hover:bg-gray-100"
+                                                                ? "text-green-600 hover:bg-green-50"
+                                                                : "text-gray-400 hover:bg-gray-100"
                                                                 } disabled:opacity-50`}
                                                             title={update.isActive ? "Deactivate" : "Activate"}
                                                         >

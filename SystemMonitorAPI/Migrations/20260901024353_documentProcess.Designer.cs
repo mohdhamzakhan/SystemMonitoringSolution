@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Oracle.EntityFrameworkCore.Metadata;
 using SystemMonitorAPI.Model;
@@ -11,9 +12,11 @@ using SystemMonitorAPI.Model;
 namespace SystemMonitorAPI.Migrations
 {
     [DbContext(typeof(SystemMonitorContext))]
-    partial class SystemMonitorContextModelSnapshot : ModelSnapshot
+    [Migration("20260901024353_documentProcess")]
+    partial class documentProcess
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -716,10 +719,6 @@ namespace SystemMonitorAPI.Migrations
                         .HasColumnType("TIMESTAMP(7)")
                         .HasColumnName("LASTATTEMPTDATE");
 
-                    b.Property<int>("RetryCount")
-                        .HasColumnType("NUMBER(10)")
-                        .HasColumnName("RETRYCOUNT");
-
                     b.Property<string>("Status")
                         .HasColumnType("NVARCHAR2(2000)")
                         .HasColumnName("STATUS");
@@ -816,26 +815,13 @@ namespace SystemMonitorAPI.Migrations
                         .HasColumnType("NUMBER(1)")
                         .HasColumnName("ISLOCAL");
 
-                    b.Property<int>("MaxRetries")
-                        .HasColumnType("NUMBER(10)")
-                        .HasColumnName("MAXRETRIES");
-
                     b.Property<string>("Parameters")
                         .HasColumnType("NVARCHAR2(2000)")
                         .HasColumnName("PARAMETERS");
 
-                    b.Property<int>("Priority")
-                        .HasColumnType("NUMBER(10)")
-                        .HasColumnName("PRIORITY");
-
                     b.Property<string>("UpdateName")
                         .HasColumnType("NVARCHAR2(2000)")
                         .HasColumnName("UPDATENAME");
-
-                    b.Property<string>("UpdateType")
-                        .IsRequired()
-                        .HasColumnType("NVARCHAR2(2000)")
-                        .HasColumnName("UPDATETYPE");
 
                     b.HasKey("UpdateID");
 

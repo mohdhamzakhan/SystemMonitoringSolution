@@ -22,7 +22,7 @@ namespace SystemMonitorAPI.Model
     }
 
     [Table("SMM_UPDATEINFO")]
-    public  class UpdateInfo
+    public class UpdateInfo
     {
         [Key]
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
@@ -42,6 +42,16 @@ namespace SystemMonitorAPI.Model
         public bool IsActive { get; set; } = true;
         [Column("ISLOCAL")]
         public bool IsLocal { get; set; } = false;
+        [Column("PRIORITY")]
+        // Lower number = higher priority = runs first. Default 100 = "no particular order".
+        public int Priority { get; set; } = 100;
+        [Column("UPDATETYPE")]
+        // "Software" (default, existing behaviour) | "WindowsUpdate" | "OfficeUpdate"
+        public string UpdateType { get; set; } = "Software";
+        [Column("MAXRETRIES")]
+        // How many times a Failed update may be retried before it is skipped so lower-priority
+        // updates are no longer blocked behind it.
+        public int MaxRetries { get; set; } = 3;
 
         // Navigation property for SystemUpdate (many-to-many)
         public virtual ICollection<SystemUpdate> SystemUpdates { get; set; }
@@ -64,6 +74,8 @@ namespace SystemMonitorAPI.Model
         public string? StatusMessage { get; set; }
         [Column("LASTATTEMPTDATE")]
         public DateTime? LastAttemptDate { get; set; }
+        [Column("RETRYCOUNT")]
+        public int RetryCount { get; set; } = 0;
 
         // Navigation properties
         public virtual SystemInfo SystemInfo { get; set; }

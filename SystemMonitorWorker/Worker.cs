@@ -67,7 +67,7 @@ namespace SystemMonitorWorker
             SaveEvent("Startup"); // Startup detected
             await SyncEventsToApiAsync(); // Sync pending events
 
-            if(!Directory.Exists(workingDirectory))
+            if (!Directory.Exists(workingDirectory))
             {
                 Directory.CreateDirectory(workingDirectory);
             }
@@ -596,34 +596,56 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
                                 {
                                     try
                                     {
-                                        _logger.LogInformation($"Processing update: {update.FilePath}");
+                                        _logger.LogInformation($"Processing update (Priority {update.Priority}, Type {update.UpdateType}): {update.FilePath}");
 
-                                        if (Directory.Exists(installerWorkingDirectory))
+                                        switch (update.UpdateType)
                                         {
-                                            try
-                                            {
-                                                Directory.Delete(installerWorkingDirectory, true);
-                                            }
-                                            catch { /* Ignore delete errors */ }
+                                            case "WindowsUpdate":
+                                                {
+                                                    var patchResult = await RunWindowsUpdatePatch(update.Username, update.Password);
+                                                    var wuStatus = patchResult.RebootRequired ? "CompletedRebootRequired" : "Completed";
+                                                    await ReportUpdateStatusToApi(update.UpdateID, wuStatus, update.SystemID, patchResult.Message);
+                                                    _logger.LogInformation("Windows Update pass completed. RebootRequired={0}", patchResult.RebootRequired);
+                                                    break;
+                                                }
+                                            case "OfficeUpdate":
+                                                {
+                                                    var patchResult = await RunOfficeUpdatePatch(update.Username, update.Password);
+                                                    await ReportUpdateStatusToApi(update.UpdateID, "Completed", update.SystemID, patchResult.Message);
+                                                    _logger.LogInformation("Office Click-to-Run update completed.");
+                                                    break;
+                                                }
+                                            default: // "Software" - existing file-copy + installer behaviour, unchanged
+                                                {
+                                                    if (Directory.Exists(installerWorkingDirectory))
+                                                    {
+                                                        try
+                                                        {
+                                                            Directory.Delete(installerWorkingDirectory, true);
+                                                        }
+                                                        catch { /* Ignore delete errors */ }
+                                                    }
+
+                                                    Directory.CreateDirectory(installerWorkingDirectory);
+
+                                                    var localPath = Path.Combine(installerWorkingDirectory, Path.GetFileName(update.FilePath));
+                                                    await CopyFileFromUNC(update.FilePath, localPath);
+                                                    _logger.LogInformation("File copied successfully.");
+
+                                                    if (Path.GetExtension(localPath) == ".zip")
+                                                    {
+                                                        await RunInstallationScript(localPath, update.FileName, update.Parameters, update.Username, update.Password, update.isLocal);
+                                                    }
+                                                    else
+                                                    {
+                                                        await RunInstallationScript(localPath, update.Parameters, update.Username, update.Password, update.isLocal);
+                                                    }
+
+                                                    await ReportUpdateStatusToApi(update.UpdateID, "Completed", update.SystemID, "Successfully Installed");
+                                                    _logger.LogInformation("Installation completed successfully.");
+                                                    break;
+                                                }
                                         }
-
-                                        Directory.CreateDirectory(installerWorkingDirectory);
-
-                                        var localPath = Path.Combine(installerWorkingDirectory, Path.GetFileName(update.FilePath));
-                                        await CopyFileFromUNC(update.FilePath, localPath);
-                                        _logger.LogInformation("File copied successfully.");
-
-                                        if (Path.GetExtension(localPath) == ".zip")
-                                        {
-                                            await RunInstallationScript(localPath, update.FileName, update.Parameters, update.Username, update.Password, update.isLocal);
-                                        }
-                                        else
-                                        {
-                                            await RunInstallationScript(localPath, update.Parameters, update.Username, update.Password, update.isLocal);
-                                        }
-
-                                        await ReportUpdateStatusToApi(update.UpdateID, "Completed", update.SystemID, "Successfully Installed");
-                                        _logger.LogInformation("Installation completed successfully.");
                                     }
                                     catch (Exception ex)
                                     {
@@ -631,7 +653,7 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
                                         await ReportUpdateStatusToApi(update.UpdateID, "Failed", update.SystemID, ex.Message);
                                     }
 
-                                    break; // Process only the first update
+                                    break; // Process only the first (highest-priority) update this cycle
                                 }
                             }
                         }
@@ -753,6 +775,10 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
             public string FileName { get; set; }
             [JsonProperty("isLocal")]
             public bool isLocal { get; set; }
+            [JsonProperty("UpdateType")]
+            public string UpdateType { get; set; } = "Software";
+            [JsonProperty("Priority")]
+            public int Priority { get; set; } = 100;
         }
 
         public class UpdateStatusRequest
@@ -1062,6 +1088,122 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
             }
         }
 
+
+        public class PatchResult
+        {
+            public bool Success { get; set; }
+            public bool RebootRequired { get; set; }
+            public string Message { get; set; }
+        }
+
+        // Runs a full Windows Update scan + install pass on this endpoint using PSWindowsUpdate.
+        // The Worker service already runs as LocalSystem, so this executes elevated/non-interactively
+        // - no scheduled task / impersonation needed, unlike the software-install path above.
+        private async Task<PatchResult> RunWindowsUpdatePatch(string username, string encryptedPassword)
+        {
+            string script = @"
+$ErrorActionPreference = 'Stop'
+$env:PSModulePath += ';C:\Windows\System32\WindowsPowerShell\v1.0\Modules'
+
+if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
+    if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope AllUsers | Out-Null
+    }
+    Install-Module -Name PSWindowsUpdate -Force -Confirm:$false -Scope AllUsers
+}
+Import-Module PSWindowsUpdate
+
+# Scan + install everything currently available. -AutoReboot is intentionally NOT used:
+# reboot timing should be controlled centrally (see RebootRequired below), not by this pass.
+$results = Get-WindowsUpdate -MicrosoftUpdate -AcceptAll -Install -IgnoreReboot -Verbose 4>&1 |
+    Out-String
+
+$rebootRequired = (Get-WURebootStatus -Silent)
+
+[PSCustomObject]@{
+    RebootRequired = [bool]$rebootRequired
+    Summary        = $results
+} | ConvertTo-Json -Compress
+";
+            var raw = await ExecutePowerShellScriptFile(script);
+
+            try
+            {
+                var parsed = JsonConvert.DeserializeObject<Dictionary<string, object>>(raw.Trim());
+                bool rebootRequired = parsed.TryGetValue("RebootRequired", out var rr) && Convert.ToBoolean(rr);
+                string summary = parsed.TryGetValue("Summary", out var s) ? s?.ToString() : raw;
+                return new PatchResult { Success = true, RebootRequired = rebootRequired, Message = summary?.Length > 4000 ? summary.Substring(0, 4000) : summary };
+            }
+            catch
+            {
+                // Fall back to raw output if it wasn't valid JSON for any reason (e.g. module install noise).
+                return new PatchResult { Success = true, RebootRequired = false, Message = raw?.Length > 4000 ? raw.Substring(0, 4000) : raw };
+            }
+        }
+
+        // Triggers an Office Click-to-Run update pass. Requires Office to be a C2R install
+        // (Microsoft 365 Apps / modern Office) - MSI-based Office is patched via RunWindowsUpdatePatch instead.
+        private async Task<PatchResult> RunOfficeUpdatePatch(string username, string encryptedPassword)
+        {
+            string script = @"
+$ErrorActionPreference = 'Stop'
+$c2r = 'C:\Program Files\Common Files\Microsoft Shared\ClickToRun\OfficeC2RClient.exe'
+if (-not (Test-Path $c2r)) {
+    $c2r = 'C:\Program Files (x86)\Common Files\Microsoft Shared\ClickToRun\OfficeC2RClient.exe'
+}
+if (-not (Test-Path $c2r)) {
+    throw 'OfficeC2RClient.exe not found - this endpoint does not have Click-to-Run Office installed.'
+}
+
+Start-Process -FilePath $c2r -ArgumentList 'update user updatepromptuser=False forceappshutdown=False' -Wait
+'Office Click-to-Run update triggered successfully.'
+";
+            var raw = await ExecutePowerShellScriptFile(script);
+            return new PatchResult { Success = true, RebootRequired = false, Message = raw };
+        }
+
+        // Writes a (potentially long/multi-line) script to a temp .ps1 and runs it with -File,
+        // avoiding the quoting/escaping problems that come with -Command for scripts this size.
+        private async Task<string> ExecutePowerShellScriptFile(string scriptText)
+        {
+            string scriptPath = Path.Combine(Path.GetTempPath(), $"SMM_Patch_{Guid.NewGuid():N}.ps1");
+            File.WriteAllText(scriptPath, scriptText);
+
+            try
+            {
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using (var process = new Process { StartInfo = startInfo })
+                {
+                    process.Start();
+                    string output = await process.StandardOutput.ReadToEndAsync();
+                    string error = await process.StandardError.ReadToEndAsync();
+                    process.WaitForExit();
+
+                    _logger.LogInformation("Patch script output: {0}", output);
+                    if (!string.IsNullOrWhiteSpace(error))
+                    {
+                        _logger.LogWarning("Patch script stderr: {0}", error);
+                        if (process.ExitCode != 0)
+                            throw new Exception($"PowerShell Error: {error}");
+                    }
+
+                    return output;
+                }
+            }
+            finally
+            {
+                try { File.Delete(scriptPath); } catch { /* best effort cleanup */ }
+            }
+        }
 
         public async Task<string> ExecutePowerShellScript(string scriptText)
         {

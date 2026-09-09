@@ -33,15 +33,37 @@ namespace SystemMonitorAPI.Controllers
             if (string.IsNullOrWhiteSpace(hostname))
                 return BadRequest("Hostname is required.");
 
-            // Fetch pending updates for the specified hostname
+            // Auto-skip any Failed update for this host that has exhausted its retry budget so it
+            // stops permanently blocking lower-priority (higher Priority number) updates behind it.
+            var exhausted = await _context.SystemUpdates
+                .Include(su => su.UpdateInfo)
+                .Where(su => su.SystemInfo.Hostname == hostname
+                             && su.Status == "Failed"
+                             && su.RetryCount >= su.UpdateInfo.MaxRetries)
+                .ToListAsync();
+
+            foreach (var su in exhausted)
+            {
+                su.Status = "Skipped";
+                su.StatusMessage = $"Skipped after {su.RetryCount} failed attempt(s); allowing lower-priority updates to proceed.";
+            }
+            if (exhausted.Any())
+                await _context.SaveChangesAsync();
+
+            // Fetch pending/failed(-not-yet-exhausted) updates for the specified hostname,
+            // lowest Priority number first so updates run strictly 1, 2, 3... in order.
             var updates = await _context.SystemUpdates
-                .Where(su => su.SystemInfo.Hostname == hostname && ((su.Status == "Pending") || (su.Status == "Failed"))) // "Pending" indicates updates needed
+                .Where(su => su.SystemInfo.Hostname == hostname && (su.Status == "Pending" || su.Status == "Failed"))
+                .OrderBy(su => su.UpdateInfo.Priority)
+                .ThenBy(su => su.UpdateInfo.CreatedDate)
                 .Select(su => new
                 {
                     su.UpdateInfo.UpdateID,
                     su.UpdateInfo.FilePath,
                     su.UpdateInfo.Parameters,
                     su.UpdateInfo.FileName,
+                    su.UpdateInfo.UpdateType,
+                    su.UpdateInfo.Priority,
                     su.SystemID
                 })
                 .ToListAsync();
@@ -56,7 +78,8 @@ namespace SystemMonitorAPI.Controllers
             if (credential == null)
                 return NotFound("Global credentials not found.");
 
-            // Include credentials in the result
+            // Include credentials in the result. Only the first (lowest-priority-number) entry
+            // will actually be executed by the agent this cycle - see Worker.cs.
             var result = updates.Select(update => new
             {
                 update.UpdateID,
@@ -65,6 +88,8 @@ namespace SystemMonitorAPI.Controllers
                 encryptedPassword = credential.EncryptedPassword,
                 Username = credential.Username,
                 update.FileName,
+                update.UpdateType,
+                update.Priority,
                 update.SystemID
             });
 
@@ -244,6 +269,11 @@ namespace SystemMonitorAPI.Controllers
                 // Update the status and status message of the existing system update
                 systemUpdate.Status = request.Status;
                 systemUpdate.StatusMessage = request.StatusMessage;
+                systemUpdate.LastAttemptDate = DateTime.Now;
+                if (string.Equals(request.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    systemUpdate.RetryCount += 1;
+                }
 
                 // Create a new update log entry
                 var updateLog = new UpdateLog

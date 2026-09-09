@@ -77,20 +77,70 @@ namespace SystemMonitorAPI.Controllers
             return latest == null ? NotFound() : Ok(latest);
         }
 
-        // Simple audit feed — a future frontend can page/filter this per device or user.
+        // Filterable, paginated audit feed backing the frontend dashboard.
         [HttpGet("history")]
-        public async Task<IActionResult> GetHistory([FromQuery] string? hostname, [FromQuery] int take = 200)
+        public async Task<IActionResult> GetHistory(
+            [FromQuery] string? username,
+            [FromQuery] string? hostname,
+            [FromQuery] string? application,
+            [FromQuery] string? classification,
+            [FromQuery] string? actionType,
+            [FromQuery] string? documentName,
+            [FromQuery] DateTime? fromDate,
+            [FromQuery] DateTime? toDate,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50)
         {
             var query = _db.DocumentClassifications.AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(username))
+                query = query.Where(x => x.Username.Contains(username));
             if (!string.IsNullOrWhiteSpace(hostname))
-                query = query.Where(x => x.Hostname == hostname);
+                query = query.Where(x => x.Hostname.Contains(hostname));
+            if (!string.IsNullOrWhiteSpace(application))
+                query = query.Where(x => x.Application == application);
+            if (!string.IsNullOrWhiteSpace(classification))
+                query = query.Where(x => x.Classification == classification);
+            if (!string.IsNullOrWhiteSpace(actionType))
+                query = query.Where(x => x.ActionType == actionType);
+            if (!string.IsNullOrWhiteSpace(documentName))
+                query = query.Where(x => x.DocumentName.Contains(documentName));
+            if (fromDate.HasValue)
+                query = query.Where(x => x.EventTime >= fromDate.Value);
+            if (toDate.HasValue)
+                query = query.Where(x => x.EventTime <= toDate.Value);
+
+            var totalCount = await query.CountAsync();
+
+            pageSize = Math.Clamp(pageSize, 1, 500);
+            page = Math.Max(page, 1);
 
             var results = await query
                 .OrderByDescending(x => x.EventTime)
-                .Take(Math.Clamp(take, 1, 1000))
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync();
 
-            return Ok(results);
+            return Ok(new
+            {
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize,
+                TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
+                Results = results
+            });
+        }
+
+        // Populates the Application/Classification/ActionType filter dropdowns from
+        // whatever values actually exist, instead of hardcoding them client-side.
+        [HttpGet("filter-options")]
+        public async Task<IActionResult> GetFilterOptions()
+        {
+            var applications = await _db.DocumentClassifications.Select(x => x.Application).Distinct().ToListAsync();
+            var classifications = await _db.DocumentClassifications.Select(x => x.Classification).Distinct().ToListAsync();
+            var actionTypes = await _db.DocumentClassifications.Select(x => x.ActionType).Distinct().ToListAsync();
+
+            return Ok(new { Applications = applications, Classifications = classifications, ActionTypes = actionTypes });
         }
     }
 
