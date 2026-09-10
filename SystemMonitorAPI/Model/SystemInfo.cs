@@ -46,8 +46,12 @@ namespace SystemMonitorAPI.Model
         // Lower number = higher priority = runs first. Default 100 = "no particular order".
         public int Priority { get; set; } = 100;
         [Column("UPDATETYPE")]
-        // "Software" (default, existing behaviour) | "WindowsUpdate" | "OfficeUpdate"
+        // "Software" (default, existing behaviour) | "WindowsUpdate" | "OfficeUpdate" | "WindowsFeatureUpdate"
         public string UpdateType { get; set; } = "Software";
+        [Column("TARGETVERSION")]
+        // Only used when UpdateType == "WindowsFeatureUpdate", e.g. "24H2", "25H2".
+        // The agent checks the device's current DisplayVersion and skips if it's already >= this.
+        public string? TargetVersion { get; set; }
         [Column("MAXRETRIES")]
         // How many times a Failed update may be retried before it is skipped so lower-priority
         // updates are no longer blocked behind it.

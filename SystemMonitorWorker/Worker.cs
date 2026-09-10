@@ -615,6 +615,61 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
                                                     _logger.LogInformation("Office Click-to-Run update completed.");
                                                     break;
                                                 }
+                                            case "WindowsFeatureUpdate":
+                                                {
+                                                    string currentVersion = GetOSDetails("DisplayVersion");
+                                                    _logger.LogInformation($"Current Windows version: {currentVersion}, target: {update.TargetVersion}");
+
+                                                    if (string.IsNullOrWhiteSpace(update.TargetVersion))
+                                                    {
+                                                        await ReportUpdateStatusToApi(update.UpdateID, "Failed", update.SystemID, "No TargetVersion configured for this update.");
+                                                        break;
+                                                    }
+
+                                                    if (CompareWindowsVersions(currentVersion, update.TargetVersion) >= 0)
+                                                    {
+                                                        await ReportUpdateStatusToApi(update.UpdateID, "Completed", update.SystemID,
+                                                            $"Already on {currentVersion}, which is at or newer than target {update.TargetVersion}. Skipping.");
+                                                        _logger.LogInformation("Device already meets or exceeds target version - nothing to do.");
+                                                        break;
+                                                    }
+
+                                                    // Below target version: run the pushed enablement package.
+                                                    // No scheduled task / impersonation needed here - DISM/wusa
+                                                    // install fine as the LocalSystem account the worker runs as.
+                                                    if (Directory.Exists(installerWorkingDirectory))
+                                                    {
+                                                        try { Directory.Delete(installerWorkingDirectory, true); }
+                                                        catch { /* Ignore delete errors */ }
+                                                    }
+                                                    Directory.CreateDirectory(installerWorkingDirectory);
+
+                                                    var localPath = Path.Combine(installerWorkingDirectory, Path.GetFileName(update.FilePath));
+                                                    await CopyFileFromUNC(update.FilePath, localPath);
+                                                    _logger.LogInformation("Enablement package copied successfully.");
+
+                                                    var installResult = await RunEnablementPackageInstall(localPath);
+
+                                                    if (!installResult.Success)
+                                                    {
+                                                        // Enablement packages only work if the device already has the
+                                                        // prerequisite servicing stack / safe-OS updates staged. A failure
+                                                        // here usually means the device is "too far behind" for this path
+                                                        // and needs the full media (setup.exe) fallback instead.
+                                                        await ReportUpdateStatusToApi(update.UpdateID, "Failed", update.SystemID,
+                                                            $"Enablement package failed - device may not be primed for {update.TargetVersion}. {installResult.Message}");
+                                                        _logger.LogWarning("Enablement package install failed; consider the full-media fallback for this device.");
+                                                        break;
+                                                    }
+
+                                                    // Feature updates take a long time and typically reboot on their own;
+                                                    // report "in progress" rather than "Completed" so an operator/dashboard
+                                                    // doesn't assume it finished the moment the installer was launched.
+                                                    await ReportUpdateStatusToApi(update.UpdateID, "CompletedRebootRequired", update.SystemID,
+                                                        $"Feature update to {update.TargetVersion} launched from {currentVersion}. Device will reboot one or more times to complete.");
+                                                    _logger.LogInformation("Feature update installer launched.");
+                                                    break;
+                                                }
                                             default: // "Software" - existing file-copy + installer behaviour, unchanged
                                                 {
                                                     if (Directory.Exists(installerWorkingDirectory))
@@ -777,6 +832,8 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
             public bool isLocal { get; set; }
             [JsonProperty("UpdateType")]
             public string UpdateType { get; set; } = "Software";
+            [JsonProperty("TargetVersion")]
+            public string TargetVersion { get; set; }
             [JsonProperty("Priority")]
             public int Priority { get; set; } = 100;
         }
@@ -1085,6 +1142,61 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
                 Console.WriteLine("Async Task Started");
                 await Task.Run(() => ExecutePowerShellScript(psScript2));
                 Console.WriteLine("Async Task Stopped");
+            }
+        }
+
+
+        // Installs a Windows feature-update enablement package (.msu or .cab). These are small
+        // (a few MB) and only flip a feature flag - they only succeed if the device has already
+        // received the prerequisite monthly updates that stage the new version's files.
+        // Exit code 3010 = success, reboot required. Exit code 2359302 (0x240006) = already applicable/installed.
+        private async Task<PatchResult> RunEnablementPackageInstall(string packagePath)
+        {
+            string ext = Path.GetExtension(packagePath).ToLowerInvariant();
+            string script;
+
+            if (ext == ".msu")
+            {
+                script = $@"
+$ErrorActionPreference = 'Stop'
+$p = Start-Process -FilePath 'wusa.exe' -ArgumentList '""{packagePath}"" /quiet /norestart' -Wait -PassThru
+$code = $p.ExitCode
+[PSCustomObject]@{{
+    ExitCode = $code
+    Success  = ($code -eq 0 -or $code -eq 3010 -or $code -eq 2359302)
+}} | ConvertTo-Json -Compress
+";
+            }
+            else // .cab (or anything else) goes through DISM
+            {
+                script = $@"
+$ErrorActionPreference = 'Stop'
+$out = & Dism.exe /Online /Add-Package /PackagePath:""{packagePath}"" /NoRestart 2>&1 | Out-String
+$code = $LASTEXITCODE
+[PSCustomObject]@{{
+    ExitCode = $code
+    Success  = ($code -eq 0 -or $code -eq 3010)
+    Output   = $out
+}} | ConvertTo-Json -Compress
+";
+            }
+
+            var raw = await ExecutePowerShellScriptFile(script);
+
+            try
+            {
+                var parsed = JsonConvert.DeserializeObject<Dictionary<string, object>>(raw.Trim());
+                bool success = parsed.TryGetValue("Success", out var suc) && Convert.ToBoolean(suc);
+                int exitCode = parsed.TryGetValue("ExitCode", out var ec) ? Convert.ToInt32(ec) : -1;
+                string output = parsed.TryGetValue("Output", out var o) ? o?.ToString() : null;
+                string message = $"Exit code {exitCode}." + (string.IsNullOrEmpty(output) ? "" : $" {output}");
+                return new PatchResult { Success = success, RebootRequired = success, Message = message?.Length > 4000 ? message.Substring(0, 4000) : message };
+            }
+            catch
+            {
+                // Couldn't parse the JSON (e.g. wusa/DISM printed something unexpected) - treat as failed
+                // so it doesn't get silently reported as Completed.
+                return new PatchResult { Success = false, RebootRequired = false, Message = raw?.Length > 4000 ? raw.Substring(0, 4000) : raw };
             }
         }
 
@@ -2010,6 +2122,36 @@ Start-ScheduledTask -TaskName $taskName
                 Console.WriteLine($"Error retrieving OS version: {ex.Message}");
             }
             return "Unknown";
+        }
+
+        // Compares Windows "DisplayVersion" strings such as "23H2", "24H2", "25H2" (also handles the
+        // older "20H2", "2004", "1909" style names via a fallback ordinal list). Returns <0 if 'current'
+        // is older than 'target', 0 if equal, >0 if current is already the same or newer.
+        // NOTE: this only orders the version *names* - it does not know whether that version is actually
+        // available/eligible for a given device; that is still gated by Microsoft on the WindowsUpdate path.
+        private static readonly List<string> KnownWindowsVersionOrder = new List<string>
+        {
+            "1507","1511","1607","1703","1709","1803","1809","1903","1909",
+            "2004","20H2","21H1","21H2","22H2","23H2","24H2","25H2"
+        };
+
+        private int CompareWindowsVersions(string current, string target)
+        {
+            if (string.IsNullOrWhiteSpace(current) || string.IsNullOrWhiteSpace(target))
+                return -1; // treat unknown as older so we don't accidentally skip a real update
+
+            current = current.Trim().ToUpperInvariant();
+            target = target.Trim().ToUpperInvariant();
+
+            int currentIdx = KnownWindowsVersionOrder.IndexOf(current);
+            int targetIdx = KnownWindowsVersionOrder.IndexOf(target);
+
+            if (currentIdx >= 0 && targetIdx >= 0)
+                return currentIdx.CompareTo(targetIdx);
+
+            // Fallback for version strings not in the lookup table yet (e.g. a future "26H1"):
+            // "YYHN" sorts correctly as a plain string compare since the year always comes first.
+            return string.Compare(current, target, StringComparison.Ordinal);
         }
 
         [SupportedOSPlatform("windows")]

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { CheckSquare, Square, AlertCircle, ArrowUpDown } from "lucide-react";
+import { CheckSquare, Square, AlertCircle, ArrowUpDown, RefreshCw } from "lucide-react";
 import Navbar from "./Navbar";
 import { APP_CONSTANTS } from "../store";
 
@@ -14,6 +14,8 @@ const AssignUpdatePage = () => {
   const [selectedHostnames, setSelectedHostnames] = useState<string[]>([]);
   const [selectedUpdate, setSelectedUpdate] = useState("");
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [sortConfig, setSortConfig] = useState<{
@@ -59,6 +61,31 @@ const AssignUpdatePage = () => {
       setSelectedHostnames([]);
     }
   }, [selectedUpdate]);
+
+  // If a refresh drops a host that was previously checked (e.g. it went offline / was
+  // removed), drop it from the selection too so we never submit a stale systemID.
+  useEffect(() => {
+    setSelectedHostnames((prev) =>
+      prev.filter((id) => hostnames.some((h) => h.systemID === id))
+    );
+  }, [hostnames]);
+
+  // Manual refresh: re-fetches the update list and, if applicable, the hostname list for
+  // the currently selected update - WITHOUT resetting selectedUpdate or the checked hosts,
+  // unlike a full browser reload which wipes all component state back to defaults.
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    setError("");
+    try {
+      await fetchUpdates();
+      if (selectedUpdate) {
+        await fetchHostnames();
+      }
+      setLastRefreshed(new Date());
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Search filter
   useEffect(() => {
@@ -172,10 +199,26 @@ const AssignUpdatePage = () => {
         <div className="max-w-7xl mx-auto px-4 py-8">
           <div className="bg-white rounded-lg shadow-lg overflow-hidden">
             {/* Header */}
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h1 className="text-2xl font-semibold text-gray-900">
-                Assign Update to Hostnames
-              </h1>
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl font-semibold text-gray-900">
+                  Assign Update to Hostnames
+                </h1>
+                {lastRefreshed && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Last refreshed: {lastRefreshed.toLocaleTimeString()}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+                {refreshing ? "Refreshing..." : "Refresh"}
+              </button>
             </div>
 
             <div className="px-6 py-4">

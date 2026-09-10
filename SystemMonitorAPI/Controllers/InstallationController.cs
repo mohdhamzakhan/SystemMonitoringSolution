@@ -63,6 +63,7 @@ namespace SystemMonitorAPI.Controllers
                     su.UpdateInfo.Parameters,
                     su.UpdateInfo.FileName,
                     su.UpdateInfo.UpdateType,
+                    su.UpdateInfo.TargetVersion,
                     su.UpdateInfo.Priority,
                     su.SystemID
                 })
@@ -89,6 +90,7 @@ namespace SystemMonitorAPI.Controllers
                 Username = credential.Username,
                 update.FileName,
                 update.UpdateType,
+                update.TargetVersion,
                 update.Priority,
                 update.SystemID
             });
