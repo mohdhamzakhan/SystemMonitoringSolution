@@ -229,7 +229,11 @@ namespace SystemMonitorAPI.Controllers
                     u.CreatedDate,
                     u.UpdateName,
                     u.IsLocal,
-                    u.IsActive
+                    u.IsActive,
+                    u.Priority,
+                    u.UpdateType,
+                    u.TargetVersion,
+                    u.MaxRetries
                 })
                 .ToListAsync();
 
@@ -375,7 +379,11 @@ namespace SystemMonitorAPI.Controllers
                     updateInfo.Parameters,
                     updateInfo.IsActive,
                     updateInfo.IsLocal,
-                    updateInfo.CreatedDate
+                    updateInfo.CreatedDate,
+                    updateInfo.Priority,
+                    updateInfo.UpdateType,
+                    updateInfo.TargetVersion,
+                    updateInfo.MaxRetries
                 });
             }
             catch (Exception ex)
@@ -435,6 +443,14 @@ namespace SystemMonitorAPI.Controllers
                 existing.Parameters = updateInfo.Parameters;
                 existing.IsLocal = updateInfo.IsLocal;
                 existing.IsActive = updateInfo.IsActive;
+                // These were previously missing here entirely, so editing an update and
+                // changing its Priority / Update Type / Target Version silently did nothing -
+                // the save "succeeded" but always kept whatever value was already in the DB.
+                existing.Priority = updateInfo.Priority;
+                existing.UpdateType = updateInfo.UpdateType;
+                existing.TargetVersion = updateInfo.TargetVersion;
+                if (updateInfo.MaxRetries > 0)
+                    existing.MaxRetries = updateInfo.MaxRetries;
 
                 await _context.SaveChangesAsync();
 
@@ -447,7 +463,11 @@ namespace SystemMonitorAPI.Controllers
                     existing.Parameters,
                     existing.IsActive,
                     existing.IsLocal,
-                    existing.CreatedDate
+                    existing.CreatedDate,
+                    existing.Priority,
+                    existing.UpdateType,
+                    existing.TargetVersion,
+                    existing.MaxRetries
                 });
             }
             catch (Exception ex)
