@@ -67,6 +67,8 @@ const UpdateManagementPage = () => {
     const [deletingId, setDeletingId] = useState<number | null>(null);
     const [tab, setTab] = useState<"dashboard" | "assign">("dashboard");
     const [showAssignModal, setShowAssignModal] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
     const API_BASE_URL = APP_CONSTANTS.API_BASE_URL + "/api/installation";
 
@@ -96,7 +98,6 @@ const UpdateManagementPage = () => {
             const data = await response.json();
             const availableHostnames = data || [];
             setHostnames(availableHostnames);
-            setFilteredHostnames(availableHostnames);
             setError("");
         } catch {
             setError("Failed to fetch hostnames.");
@@ -161,6 +162,33 @@ const UpdateManagementPage = () => {
             setSelectedHostnames([]);
         }
     }, [selectedUpdate, fetchHostnames, fetchAssignedSystems]);
+
+    // If a refresh drops a host that was previously checked (now assigned by someone else,
+    // gone offline, decommissioned, etc.), drop it from the selection too.
+    useEffect(() => {
+        setSelectedHostnames((prev) => prev.filter((id) => availableHostnames.some((h) => h.systemID === id)));
+    }, [availableHostnames]);
+
+    // Refreshes everything currently on screen - the update list, the available-hosts list,
+    // and (if a package is selected) its assigned-systems statuses - without resetting
+    // selectedUpdate, the search box, the status filter, checked hosts, or which tab you're on.
+    // Previously the only way to see fresh data was a full page reload, which reset all of that.
+    const handleRefresh = useCallback(async () => {
+        setRefreshing(true);
+        setError("");
+        try {
+            await fetchUpdates();
+            if (selectedUpdate) {
+                await Promise.all([
+                    fetchHostnames(),
+                    fetchAssignedSystems(selectedUpdate),
+                ]);
+            }
+            setLastRefreshed(new Date());
+        } finally {
+            setRefreshing(false);
+        }
+    }, [selectedUpdate, fetchUpdates, fetchHostnames, fetchAssignedSystems]);
 
     const filteredHostnames = useMemo(() => {
         let result = [...availableHostnames];
@@ -402,8 +430,22 @@ const UpdateManagementPage = () => {
                                 <p className="mt-2 text-lg text-gray-600">
                                     Deploy updates at scale with real-time monitoring
                                 </p>
+                                {lastRefreshed && (
+                                    <p className="mt-1 text-xs text-gray-400">
+                                        Last refreshed: {lastRefreshed.toLocaleTimeString()}
+                                    </p>
+                                )}
                             </div>
                             <div className="mt-6 lg:mt-0 flex items-center gap-3">
+                                <button
+                                    onClick={handleRefresh}
+                                    disabled={refreshing || loading}
+                                    title="Refresh data"
+                                    className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium text-gray-700"
+                                >
+                                    <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+                                    {refreshing ? "Refreshing..." : "Refresh"}
+                                </button>
                                 <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
                                     <select
                                         value={selectedUpdate}
@@ -491,8 +533,8 @@ const UpdateManagementPage = () => {
                                     <button
                                         onClick={() => setTab("dashboard")}
                                         className={`py-2 px-4 font-medium text-sm rounded-md transition-colors ${tab === "dashboard"
-                                                ? "bg-white text-gray-900 border-b-2 border-blue-500 shadow-sm"
-                                                : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
+                                            ? "bg-white text-gray-900 border-b-2 border-blue-500 shadow-sm"
+                                            : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
                                             }`}
                                     >
                                         Dashboard
@@ -500,8 +542,8 @@ const UpdateManagementPage = () => {
                                     <button
                                         onClick={() => setTab("assign")}
                                         className={`py-2 px-4 font-medium text-sm rounded-md transition-colors ${tab === "assign"
-                                                ? "bg-white text-gray-900 border-b-2 border-blue-500 shadow-sm"
-                                                : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
+                                            ? "bg-white text-gray-900 border-b-2 border-blue-500 shadow-sm"
+                                            : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
                                             }`}
                                     >
                                         Assign Hosts ({availableHostnames.length})
@@ -536,8 +578,8 @@ const UpdateManagementPage = () => {
                                                         key={key}
                                                         onClick={() => setStatusFilter(key as any)}
                                                         className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${statusFilter === key
-                                                                ? "bg-blue-600 text-white border-blue-600"
-                                                                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                                                            ? "bg-blue-600 text-white border-blue-600"
+                                                            : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
                                                             }`}
                                                     >
                                                         {label}
