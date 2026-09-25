@@ -219,25 +219,32 @@ namespace SystemMonitorAPI.Controllers
         [HttpGet("active-updates")]
         public async Task<IActionResult> GetActiveUpdates()
         {
-            var activeUpdates = await _context.Updates
-                .Select(u => new
-                {
-                    u.UpdateID,
-                    u.FilePath,
-                    u.FileName,
-                    u.Parameters,
-                    u.CreatedDate,
-                    u.UpdateName,
-                    u.IsLocal,
-                    u.IsActive,
-                    u.Priority,
-                    u.UpdateType,
-                    u.TargetVersion,
-                    u.MaxRetries
-                })
-                .ToListAsync();
+            try
+            {
+                var activeUpdates = await _context.Updates
+                    .Select(u => new
+                    {
+                        u.UpdateID,
+                        u.FilePath,
+                        u.FileName,
+                        u.Parameters,
+                        u.CreatedDate,
+                        u.UpdateName,
+                        u.IsLocal,
+                        u.IsActive,
+                        u.Priority,
+                        u.UpdateType,
+                        u.TargetVersion,
+                        u.MaxRetries
+                    })
+                    .ToListAsync();
+                return Ok(activeUpdates);
+            }
+            catch (Exception EX)
+            {
+                return BadRequest();
+            }
 
-            return Ok(activeUpdates);
         }
 
 

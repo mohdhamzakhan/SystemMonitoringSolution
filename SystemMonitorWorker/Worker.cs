@@ -24,7 +24,7 @@ namespace SystemMonitorWorker
     {
         private readonly ILogger<Worker> _logger;
         private readonly HttpClient _httpClient;
-        private const string ApiBaseUrl = @"http://10.235.20.49:5295/api";
+        private const string ApiBaseUrl = @"http://10.235.20.49:5293/api";
         string password = string.Empty;
         string workingDirectory = @"C:\MEAI\Installer";
         string installerWorkingDirectory = @"C:\MEAI\Installations";
@@ -150,9 +150,16 @@ namespace SystemMonitorWorker
             //Set objShell = Nothing
 
             //";
+
             string networkPath = @"\\meaisdfs\PUBLIC_SANAND\04IT_Sanand\02_Open_to_all\SystemMonitorWorker\SystemMonitorWorker.exe";
             string networkFolder = @"\\meaisdfs\PUBLIC_SANAND\04IT_Sanand\02_Open_to_all\SystemMonitorWorker";
             string localFolder = @"C:\SystemMonitor";
+            if (ApiBaseUrl.Contains("5293"))
+            {
+                networkPath = @"\\meainfs\public\04IT\02_Open_to_all\systemMonitorworker\SystemMonitorWorker.exe";
+                networkFolder = @"\\meainfs\public\04IT\02_Open_to_all\systemMonitorworker";
+                localFolder = @"C:\SystemMonitor";
+            }
 
             string command = $@"
 On Error Resume Next
@@ -160,9 +167,9 @@ On Error Resume Next
 Dim objWMIService, colProcesses, objShell
 Dim fso, localPathVBS, networkFolderVBS, localFolderVBS, logFile, exeName
 
-localFolderVBS   = ""C:\SystemMonitor""
-networkFolderVBS = ""\\meaisdfs\PUBLIC_SANAND\04IT_Sanand\02_Open_to_all\SystemMonitorWorker""
-logFile          = ""C:\SystemMonitor\debug.log""
+localFolderVBS   = ""{localFolder}""
+networkFolderVBS = ""{networkFolder}""
+logFile          = ""{localFolder}\debug.log""
 exeName          = ""SystemMonitorWorker.exe""
 
 Set fso = CreateObject(""Scripting.FileSystemObject"")
@@ -181,16 +188,19 @@ If colProcesses.Count = 0 Then
         ts.WriteLine ""Created local folder""
     End If
     
-    ' DELETE old local folder contents first (for clean update)
+    ' DELETE old local folder contents first
     On Error Resume Next
+    
     Dim localFiles: Set localFiles = fso.GetFolder(localFolderVBS).Files
     For Each file In localFiles
         fso.DeleteFile file.Path
     Next
+    
     Dim localSubFolders: Set localSubFolders = fso.GetFolder(localFolderVBS).SubFolders
     For Each folder In localSubFolders
         fso.DeleteFolder folder.Path
     Next
+    
     Err.Clear
     ts.WriteLine ""Cleared old local files""
     
@@ -198,7 +208,7 @@ If colProcesses.Count = 0 Then
     If fso.FolderExists(networkFolderVBS) Then
         ts.WriteLine ""Network folder OK, copying entire folder...""
         
-        ' Copy all files first
+        ' Copy all files
         Dim netFiles: Set netFiles = fso.GetFolder(networkFolderVBS).Files
         For Each netFile In netFiles
             fso.CopyFile netFile.Path, localFolderVBS & ""\"" & netFile.Name, True
@@ -212,13 +222,15 @@ If colProcesses.Count = 0 Then
         
         ts.WriteLine ""Folder copy COMPLETE - "" & netFiles.Count & "" files, "" & netFolders.Count & "" folders""
     Else
-        ts.WriteLine ""Network folder MISSING""
+        ts.WriteLine ""Network folder MISSING: "" & networkFolderVBS
     End If
 
     ' Run the EXE
     localPathVBS = localFolderVBS & ""\"" & exeName
+    
     If fso.FileExists(localPathVBS) Then
         ts.WriteLine ""Running: "" & localPathVBS
+        
         Set objShell = CreateObject(""WScript.Shell"")
         objShell.Run """" & localPathVBS & """", 0, False
     Else
@@ -228,24 +240,35 @@ Else
     ts.WriteLine ""Process already running""
 End If
 
-ts.WriteLine ""=== END ==="" & Now()
+ts.WriteLine ""=== END === "" & Now()
 Set ts = Nothing
 
 ' Helper function for recursive folder copy
 Sub CopyFolder(source, destination)
+
     On Error Resume Next
-    Dim fso: Set fso = CreateObject(""Scripting.FileSystemObject"")
-    If Not fso.FolderExists(destination) Then fso.CreateFolder destination
     
-    Dim files: Set files = fso.GetFolder(source).Files
+    Dim fso
+    Set fso = CreateObject(""Scripting.FileSystemObject"")
+    
+    If Not fso.FolderExists(destination) Then
+        fso.CreateFolder destination
+    End If
+    
+    Dim files
+    Set files = fso.GetFolder(source).Files
+    
     For Each file In files
-        fso.CopyFile file.Path, destination & ""\\\\"" & file.Name, True
+        fso.CopyFile file.Path, destination & ""\"" & file.Name, True
     Next
     
-    Dim folders: Set folders = fso.GetFolder(source).SubFolders
+    Dim folders
+    Set folders = fso.GetFolder(source).SubFolders
+    
     For Each folder In folders
-        CopyFolder folder.Path, destination & ""\\\\"" & folder.Name
+        CopyFolder folder.Path, destination & ""\"" & folder.Name
     Next
+
 End Sub
 ";
 
