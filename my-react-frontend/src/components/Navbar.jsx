@@ -68,7 +68,7 @@ const Navbar = () => {
                         <li><NavLink to="/folder" className={navLinkStyles}>Folder</NavLink></li>
                         <li><NavLink to="/vulnerability-dashboard" className={navLinkStyles}>Vulnerability Dashboard</NavLink></li>
                         <li><NavLink to="/NetworkDashboard" className={navLinkStyles}>Network</NavLink></li>
-                        <li><NavLink to="/document-classification" className={navLinkStyles}>Document Classification</NavLink></li>
+                        {/*<li><NavLink to="/document-classification" className={navLinkStyles}>Document Classification</NavLink></li>*/}
                         <li><NavLink to="/warranty-management" className={navLinkStyles}>Warranty Management</NavLink></li>
                         <li><Dropdown /></li>
                         <li>
