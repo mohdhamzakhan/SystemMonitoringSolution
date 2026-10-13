@@ -1,7 +1,7 @@
 ﻿const TOKEN_KEY = "auth_token";
 const LOGIN_TIME_KEY = "login_timestamp";
 const SESSION_DURATION_MS = 48 * 60 * 60 * 1000; // 48 hours
-
+const EXECUTIVE_HOME_USERS = ["sushant","hamza.khan"];
 export const saveSession = (token: string) => {
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(LOGIN_TIME_KEY, Date.now().toString());
@@ -9,6 +9,10 @@ export const saveSession = (token: string) => {
 
 export const getToken = (): string | null => {
     return localStorage.getItem(TOKEN_KEY);
+};
+export const getHomePath = (username?: string | null): string => {
+    const name = (username ?? getUsername() ?? "").split("\\").pop()!.trim().toLowerCase();
+    return EXECUTIVE_HOME_USERS.includes(name) ? "/executivedashboard" : "/MainPage";
 };
 
 export const isSessionValid = (): boolean => {

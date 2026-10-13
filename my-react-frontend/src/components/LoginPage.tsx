@@ -2,7 +2,7 @@
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { APP_CONSTANTS } from "../store";
-import { saveSession, isSessionValid, getRole } from "../auth";
+import { saveSession, isSessionValid, getRole, getHomePath } from "../auth";
 
 export default function LoginPage() {
     const [username, setUsername] = useState("");
@@ -18,7 +18,7 @@ export default function LoginPage() {
         if (isSessionValid()) {
             const role = getRole();
             if (role === "Admin") {
-                navigate("/MainPage", { replace: true });
+                navigate(getHomePath(), { replace: true });
             } else {
                 const token = localStorage.getItem("auth_token");
                 if (token) {
@@ -87,7 +87,7 @@ export default function LoginPage() {
                 decodedToken["http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
 
             if (userRole === "Admin") {
-                navigate("/MainPage");
+                navigate(getHomePath(username));
             } else {
                 try {
                     const deviceResponse = await axios.get(

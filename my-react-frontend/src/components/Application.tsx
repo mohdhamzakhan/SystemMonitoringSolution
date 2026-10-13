@@ -16,6 +16,7 @@ import NetworkDashboard from "./Networkdashboard.jsx";
 import ProtectedRoute from "../ProtectedRoute.tsx";
 import FolderTreePage from "./FolderTree.jsx"
 import DocumentClassificationDashboard from "./DocumentClassificationDashboard.tsx"
+import ExecutiveDashboard from "./ExecutiveDashboard.tsx"
 
 const Application = () => (
     <Router>
@@ -43,6 +44,7 @@ const Application = () => (
             <Route path="/NetworkDashboard" element={<ProtectedRoute adminOnly><NetworkDashboard /></ProtectedRoute>} />
             <Route path="/folder" element={<ProtectedRoute adminOnly><FolderTreePage /></ProtectedRoute>} />
             <Route path="/document-classification" element={<ProtectedRoute adminOnly><DocumentClassificationDashboard /></ProtectedRoute>} />
+            <Route path="/ExecutiveDashboard" element={<ProtectedRoute adminOnly><ExecutiveDashboard /></ProtectedRoute>} />
         </Routes>
     </Router>
 );

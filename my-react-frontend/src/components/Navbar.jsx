@@ -68,6 +68,7 @@ const Navbar = () => {
                         <li><NavLink to="/folder" className={navLinkStyles}>Folder</NavLink></li>
                         <li><NavLink to="/vulnerability-dashboard" className={navLinkStyles}>Vulnerability Dashboard</NavLink></li>
                         <li><NavLink to="/NetworkDashboard" className={navLinkStyles}>Network</NavLink></li>
+                        <li><NavLink to="/ExecutiveDashboard" className={navLinkStyles}>Dashboard</NavLink></li>
                         {/*<li><NavLink to="/document-classification" className={navLinkStyles}>Document Classification</NavLink></li>*/}
                         <li><NavLink to="/warranty-management" className={navLinkStyles}>Warranty Management</NavLink></li>
                         <li><Dropdown /></li>
@@ -93,7 +94,8 @@ const Navbar = () => {
                         <li><NavLink to="/folder" className={navLinkStyles} onClick={() => setIsMenuOpen(false)}>Folder</NavLink></li>
                         <li><NavLink to="/vulnerability-dashboard" className={navLinkStyles} onClick={() => setIsMenuOpen(false)}>Vulnerability Dashboard</NavLink></li>
                         <li><NavLink to="/NetworkDashboard" className={navLinkStyles} onClick={() => setIsMenuOpen(false)}>Network</NavLink></li>
-                        <li><NavLink to="/document-classification" className={navLinkStyles} onClick={() => setIsMenuOpen(false)}>Document Classification</NavLink></li>
+                        <li><NavLink to="/ExecutiveDashboard" className={navLinkStyles} onClick={() => setIsMenuOpen(false)}>Dashboard</NavLink></li>
+                        {/*<li><NavLink to="/document-classification" className={navLinkStyles} onClick={() => setIsMenuOpen(false)}>Document Classification</NavLink></li>*/}
                         <li><NavLink to="/warranty-management" className={navLinkStyles} onClick={() => setIsMenuOpen(false)}>Warranty Management</NavLink></li>
                         <li className="pt-2"><Dropdown /></li>
                         <li className="pt-2">
